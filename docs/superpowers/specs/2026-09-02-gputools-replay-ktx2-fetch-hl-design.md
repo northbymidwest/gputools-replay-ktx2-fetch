@@ -1,7 +1,7 @@
-# ktx2-fetch 0.2: lossless texture export via gputools-replay-hl
+# gputools-replay-ktx2-fetch 0.2: lossless texture export via gputools-replay-hl
 
 Design spec. 2026-09-02, revised the same day after the hl surface review
-(section 13). Successor to `../gputrace-tool-2`'s `ktx2-fetch` (spec
+(section 13). Successor to `../gputrace-tool-2`'s `gputools-replay-ktx2-fetch` (spec
 `2026-08-31-gputrace-tool-2-design.md` in that repo). Same purpose and
 same output contract; the private-framework engine tool-2 carried is
 replaced by the `gputools-replay-hl` crate, and the output is widened to
@@ -16,7 +16,7 @@ fact about the replayer.
 
 Xcode's `gpudebug fetch` exports textures only as PNG, and PNG loses data
 that matters: alpha is dropped and float range is destroyed (MEASURED by
-tool-2, whose README carries the figures). `ktx2-fetch` writes each
+tool-2, whose README carries the figures). `gputools-replay-ktx2-fetch` writes each
 texture of a `.gputrace` capture as a KTX2 file in its native pixel
 format, byte for byte, with no colour management, no channel reordering,
 and no alpha loss.
@@ -53,7 +53,7 @@ The 0.2 rewrite exists for two reasons:
 ## 3. Naming and CLI
 
 ```
-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
+gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
 ```
 
 - `--max-stream-ref` (default 2000): highest streamRef swept. streamRef
@@ -74,8 +74,8 @@ ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unus
   `Capture::set_timeout`. Fetch latency legitimately ranges from about 27
   seconds to over 20 minutes on large captures.
 
-The crate is `ktx2-fetch` version `0.1.0`, edition 2024. ("0.2" in this document names the rewrite's generation relative to tool-2, not the crate version: the tool-2 crate was a throwaway and this crate starts at 0.1.0.) One binary, one
-library (`ktx2_fetch`) so the modules are unit-testable.
+The crate is `gputools-replay-ktx2-fetch` version `0.1.0`, edition 2024. ("0.2" in this document names the rewrite's generation relative to tool-2, not the crate version: the tool-2 crate was a throwaway and this crate starts at 0.1.0.) One binary, one
+library (`gputools_replay_ktx2_fetch`) so the modules are unit-testable.
 
 ## 4. Architecture
 
@@ -368,7 +368,7 @@ and accepts `gputrace.`). Keys marked (desc) are written only when the
 texture was attributed a descriptor.
 
 ```
-KTXwriter                 ktx2-fetch 0.1.0
+KTXwriter                 gputools-replay-ktx2-fetch 0.1.0
 gputrace.arrayLength      <n>                        (desc)
 gputrace.aspect           color | depth | stencil
 gputrace.assumptions      MTLREPLAYER_LOCK_PARAM_BUFFER_SIZE_TO_MAX=0; MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=<0|1>; MTLREPLAYER_IGNORE_UNUSED_RESOURCE=<1|0>; alpha assumed straight (Metal does not record premultiplication)

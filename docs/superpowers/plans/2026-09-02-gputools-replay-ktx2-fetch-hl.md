@@ -1,18 +1,18 @@
-# ktx2-fetch 0.2 Implementation Plan
+# gputools-replay-ktx2-fetch 0.2 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build `ktx2-fetch` 0.2, a CLI that writes every texture of an Xcode `.gputrace` capture as a lossless KTX2 file with full provenance, using `gputools-replay-hl` as its only engine.
+**Goal:** Build `gputools-replay-ktx2-fetch` 0.2, a CLI that writes every texture of an Xcode `.gputrace` capture as a lossless KTX2 file with full provenance, using `gputools-replay-hl` as its only engine.
 
 **Architecture:** One Rust crate with a library of small modules (VkFormat table, DFD builder, KTX2 writer, a `Tex` seam over hl's `Texture`, the two-pass sweep, the emitter, the manifest) and a thin binary. Everything that touches the replayer is behind two traits (`Tex`, `Fetcher`) so the sweep and emitter are unit-tested with fakes, and a feature-gated oracle suite drives the real replayer against this repo's own fixture captures and checks every file with Khronos' `ktx validate`.
 
 **Tech Stack:** Rust 2024 (rustc 1.98), `gputools-replay-hl` by path, `clap`, `serde`/`serde_json`, `thiserror`. Khronos `ktx` CLI (v5.0.0-rc1) as an external oracle. `clang` + `gpucapture` to build and capture fixtures. Python 3 for the one fixture-generation script.
 
-**Spec:** `docs/superpowers/specs/2026-09-02-ktx2-fetch-hl-design.md` (commit `98057a4`). Section numbers below refer to it.
+**Spec:** `docs/superpowers/specs/2026-09-02-gputools-replay-ktx2-fetch-hl-design.md` (commit `98057a4`). Section numbers below refer to it.
 
 ## Global Constraints
 
-- Crate `ktx2-fetch`, version `0.2.0`, edition `2024`, `rust-version = "1.98"`. Library name `ktx2_fetch`, binary `ktx2-fetch`.
+- Crate `gputools-replay-ktx2-fetch`, version `0.2.0`, edition `2024`, `rust-version = "1.98"`. Library name `gputools_replay_ktx2_fetch`, binary `gputools-replay-ktx2-fetch`.
 - The only external tie is `gputools-replay-hl = { path = "../gputools-replay/crates/gputools-replay-hl" }`. Never name `gputools_replay` or `gputools_replay_bundle` in this crate; everything comes through hl's re-exports (spec 4.1).
 - Other dependencies: `clap` (derive), `serde` (derive), `serde_json`, `thiserror`. Nothing else (spec 4.1).
 - `#![deny(unsafe_code)]` on the library. The binary has exactly one `unsafe` block, the two env writes at the top of `main`. `deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)` outside tests, relaxed under `cfg(test)` (spec 4.3).
@@ -64,13 +64,13 @@ Measured on 2026-09-02 while writing this plan, on this machine:
 - Test: `src/lib.rs` (unit)
 
 **Interfaces:**
-- Produces: `ktx2_fetch::TOOL_VERSION: &str`, `ktx2_fetch::engine() -> &'static str` (e.g. `gputools-replay-hl 0.0.0 (path)`).
+- Produces: `gputools_replay_ktx2_fetch::TOOL_VERSION: &str`, `gputools_replay_ktx2_fetch::engine() -> &'static str` (e.g. `gputools-replay-hl 0.0.0 (path)`).
 
 - [ ] **Step 1: Write `Cargo.toml`**
 
 ```toml
 [package]
-name = "ktx2-fetch"
+name = "gputools-replay-ktx2-fetch"
 version = "0.2.0"
 edition = "2024"
 rust-version = "1.98"
@@ -78,11 +78,11 @@ description = "Lossless KTX2 export of every texture in an Xcode .gputrace captu
 publish = false
 
 [lib]
-name = "ktx2_fetch"
+name = "gputools_replay_ktx2_fetch"
 path = "src/lib.rs"
 
 [[bin]]
-name = "ktx2-fetch"
+name = "gputools-replay-ktx2-fetch"
 path = "src/main.rs"
 
 [dependencies]
@@ -146,9 +146,9 @@ fn engine_from_lock(text: &str) -> Option<String> {
 - [ ] **Step 3: Write `src/lib.rs` with the failing test**
 
 ```rust
-//! ktx2-fetch: lossless KTX2 export of a `.gputrace` capture's textures,
+//! gputools-replay-ktx2-fetch: lossless KTX2 export of a `.gputrace` capture's textures,
 //! on the `gputools-replay-hl` engine. See the spec in
-//! `docs/superpowers/specs/2026-09-02-ktx2-fetch-hl-design.md`.
+//! `docs/superpowers/specs/2026-09-02-gputools-replay-ktx2-fetch-hl-design.md`.
 #![deny(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 #![cfg_attr(
@@ -188,7 +188,7 @@ mod tests {
 
 ```rust
 fn main() {
-    println!("ktx2-fetch {} on {}", ktx2_fetch::TOOL_VERSION, ktx2_fetch::engine());
+    println!("gputools-replay-ktx2-fetch {} on {}", gputools_replay_ktx2_fetch::TOOL_VERSION, gputools_replay_ktx2_fetch::engine());
 }
 ```
 
@@ -235,7 +235,7 @@ Expected: both lib tests PASS. The first build compiles hl and its substrate; th
 
 ```bash
 git add Cargo.toml Cargo.lock build.rs src .gitignore .githooks
-git commit -m "feat: scaffold ktx2-fetch 0.2 on gputools-replay-hl
+git commit -m "feat: scaffold gputools-replay-ktx2-fetch 0.2 on gputools-replay-hl
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -255,7 +255,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ```python
 #!/usr/bin/env python3
-"""Capture Khronos' own DFD for every VkFormat ktx2-fetch writes.
+"""Capture Khronos' own DFD for every VkFormat gputools-replay-ktx2-fetch writes.
 
 For each format: `ktx create --raw` an 8x8 file, `ktx validate` it, and
 record (a) the DFD bytes to tests/fixtures/dfd/<NAME>.dfd, (b) the header's
@@ -1056,7 +1056,7 @@ mod tests {
         let d = dfd::build(80, &lookup(MTLPixelFormat::BGRA8Unorm).unwrap()).unwrap();
         let kv = vec![
             ("gputrace.streamRef".to_string(), "25".to_string()),
-            ("KTXwriter".to_string(), "ktx2-fetch 0.2.0".to_string()),
+            ("KTXwriter".to_string(), "gputools-replay-ktx2-fetch 0.2.0".to_string()),
         ];
         let out = write_ktx2(&bgra_params(&d, &kv), &[0u8; 64]).unwrap();
         let read = kv_pairs(&out);
@@ -1097,9 +1097,9 @@ mod tests {
             return;
         }
         let d = dfd::build(80, &lookup(MTLPixelFormat::BGRA8Unorm).unwrap()).unwrap();
-        let kv = vec![("KTXwriter".to_string(), "ktx2-fetch test".to_string()), ("gputrace.streamRef".to_string(), "1".to_string())];
+        let kv = vec![("KTXwriter".to_string(), "gputools-replay-ktx2-fetch test".to_string()), ("gputrace.streamRef".to_string(), "1".to_string())];
         let out = write_ktx2(&bgra_params(&d, &kv), &[9u8; 64]).unwrap();
-        let path = std::env::temp_dir().join(format!("ktx2_fetch_unit_{}.ktx2", std::process::id()));
+        let path = std::env::temp_dir().join(format!("gputools_replay_ktx2_fetch_unit_{}.ktx2", std::process::id()));
         std::fs::write(&path, &out).unwrap();
         let st = std::process::Command::new("ktx").arg("validate").arg(&path).output().unwrap();
         assert!(st.status.success(), "{}{}", String::from_utf8_lossy(&st.stdout), String::from_utf8_lossy(&st.stderr));
@@ -1698,7 +1698,7 @@ fn provenance_kv<T: Tex>(ctx: &Context, f: &Fetched<T>, rows_repacked: bool) -> 
         Aspect::Stencil => "stencil",
     };
     let mut kv = vec![
-        ("KTXwriter".to_string(), format!("ktx2-fetch {}", crate::TOOL_VERSION)),
+        ("KTXwriter".to_string(), format!("gputools-replay-ktx2-fetch {}", crate::TOOL_VERSION)),
         ("gputrace.aspect".to_string(), aspect.to_string()),
         ("gputrace.assumptions".to_string(), Manifest::assumptions_line(ctx.force_load_unused)),
         ("gputrace.bundle".to_string(), ctx.bundle.to_string()),
@@ -1844,7 +1844,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ktx2_fetch_emit_{name}_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("gputools_replay_ktx2_fetch_emit_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -2348,7 +2348,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: everything above; hl `Capture`, `ReplayerConfig`, `Aspect`.
-- Produces: the `ktx2-fetch` CLI per spec 3.
+- Produces: the `gputools-replay-ktx2-fetch` CLI per spec 3.
 
 - [ ] **Step 1: Write `src/main.rs`**
 
@@ -2358,16 +2358,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 use clap::Parser;
 use gputools_replay_hl::{Aspect as FetchAspect, Capture, Descriptions, Error, ManifestStatus, ReplayerConfig, Texture};
-use ktx2_fetch::emit::{Context, emit_one};
-use ktx2_fetch::manifest::Manifest;
-use ktx2_fetch::sweep::{self, Fetcher};
+use gputools_replay_ktx2_fetch::emit::{Context, emit_one};
+use gputools_replay_ktx2_fetch::manifest::Manifest;
+use gputools_replay_ktx2_fetch::sweep::{self, Fetcher};
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "ktx2-fetch", version, about = "Export every texture of a .gputrace capture as lossless KTX2")]
+#[command(name = "gputools-replay-ktx2-fetch", version, about = "Export every texture of a .gputrace capture as lossless KTX2")]
 struct Args {
     /// The .gputrace bundle.
     bundle: PathBuf,
@@ -2404,7 +2404,7 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
-            eprintln!("ktx2-fetch: {e}");
+            eprintln!("gputools-replay-ktx2-fetch: {e}");
             ExitCode::from(2)
         }
     }
@@ -2451,7 +2451,7 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
 
     if man.textures.is_empty() {
         eprintln!(
-            "ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, that --max-stream-ref ({}) is at least as high as the streamRefs it uses, and consider --force-load-unused",
+            "gputools-replay-ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, that --max-stream-ref ({}) is at least as high as the streamRefs it uses, and consider --force-load-unused",
             args.max_stream_ref
         );
     }
@@ -2459,17 +2459,17 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         && c.listed_not_answered > 0
     {
         eprintln!(
-            "ktx2-fetch: {} of the bundle's listed textures did not answer the fetch; if they are never read by a captured command, --force-load-unused makes them answer",
+            "gputools-replay-ktx2-fetch: {} of the bundle's listed textures did not answer the fetch; if they are never read by a captured command, --force-load-unused makes them answer",
             c.listed_not_answered
         );
     }
 
     let code = man.exit_code();
     if let Err(e) = man.write(&args.out.join("manifest.json")) {
-        eprintln!("ktx2-fetch: failed to write manifest.json: {e}");
+        eprintln!("gputools-replay-ktx2-fetch: failed to write manifest.json: {e}");
         match serde_json::to_string_pretty(&man) {
-            Ok(json) => eprintln!("ktx2-fetch: the manifest was not written to disk; printing it here so the run is not lost:\n{json}"),
-            Err(se) => eprintln!("ktx2-fetch: could not serialise the manifest either: {se}"),
+            Ok(json) => eprintln!("gputools-replay-ktx2-fetch: the manifest was not written to disk; printing it here so the run is not lost:\n{json}"),
+            Err(se) => eprintln!("gputools-replay-ktx2-fetch: could not serialise the manifest either: {se}"),
         }
         return Ok(code.max(1));
     }
@@ -2483,7 +2483,7 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
 use std::process::Command;
 
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_ktx2-fetch"))
+    Command::new(env!("CARGO_BIN_EXE_gputools-replay-ktx2-fetch"))
 }
 
 #[test]
@@ -2498,11 +2498,11 @@ fn help_lists_every_flag() {
 
 #[test]
 fn a_missing_bundle_exits_2_with_a_named_error_and_no_manifest() {
-    let out_dir = std::env::temp_dir().join(format!("ktx2_fetch_cli_{}", std::process::id()));
+    let out_dir = std::env::temp_dir().join(format!("gputools_replay_ktx2_fetch_cli_{}", std::process::id()));
     let out = bin().arg("/nonexistent/thing.gputrace").arg("--out").arg(&out_dir).output().unwrap();
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("ktx2-fetch:"), "{err}");
+    assert!(err.contains("gputools-replay-ktx2-fetch:"), "{err}");
     assert!(err.contains("nonexistent"), "{err}");
     assert!(!out_dir.join("manifest.json").exists());
 }
@@ -2517,7 +2517,7 @@ Expected: 2 tests PASS; clippy clean. If clippy flags `let` chains, the edition 
 
 ```bash
 git add src/main.rs tests/cli.rs
-git commit -m "feat: ktx2-fetch CLI wiring the sweep and emitter over a live Capture
+git commit -m "feat: gputools-replay-ktx2-fetch CLI wiring the sweep and emitter over a live Capture
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -2555,7 +2555,7 @@ sed -i '' 's#fixture-apps/#fixtures/#g' fixtures/*.m fixtures/*.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p captures
-BIN="${TMPDIR:-/tmp}/ktx2-fetch-fixtures"
+BIN="${TMPDIR:-/tmp}/gputools-replay-ktx2-fetch-fixtures"
 mkdir -p "$BIN"
 
 build() {
@@ -2724,17 +2724,17 @@ pub struct Run {
 }
 
 pub fn run_cli(bundle: &Path, tag: &str, extra: &[&str]) -> Run {
-    let out = std::env::temp_dir().join(format!("ktx2-fetch-oracle-{tag}-{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("gputools-replay-ktx2-fetch-oracle-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);
-    let o = Command::new(env!("CARGO_BIN_EXE_ktx2-fetch"))
+    let o = Command::new(env!("CARGO_BIN_EXE_gputools-replay-ktx2-fetch"))
         .arg(bundle)
         .arg("--out")
         .arg(&out)
         .args(extra)
         .output()
-        .expect("spawn ktx2-fetch");
+        .expect("spawn gputools-replay-ktx2-fetch");
     let stderr = String::from_utf8_lossy(&o.stderr).into_owned();
-    eprintln!("--- ktx2-fetch stderr ---\n{stderr}--- end ---");
+    eprintln!("--- gputools-replay-ktx2-fetch stderr ---\n{stderr}--- end ---");
     let manifest = std::fs::read(out.join("manifest.json"))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
@@ -2766,11 +2766,11 @@ pub fn file_bytes(r: &Run, entry: &serde_json::Value) -> Vec<u8> {
 }
 
 pub fn level0_of(r: &Run, entry: &serde_json::Value) -> Vec<u8> {
-    ktx2_fetch::ktx::level0(&file_bytes(r, entry)).unwrap().to_vec()
+    gputools_replay_ktx2_fetch::ktx::level0(&file_bytes(r, entry)).unwrap().to_vec()
 }
 
 pub fn kv_of(r: &Run, entry: &serde_json::Value) -> Vec<(String, String)> {
-    ktx2_fetch::ktx::kv_pairs(&file_bytes(r, entry))
+    gputools_replay_ktx2_fetch::ktx::kv_pairs(&file_bytes(r, entry))
 }
 
 pub fn f32s(b: &[u8]) -> Vec<f32> {
@@ -2908,7 +2908,7 @@ fn depth32float_reads_half_everywhere() {
     assert_eq!(e["aspect"], "depth");
     assert_eq!(e["vk_format"], "D32_SFLOAT");
     assert!(e["file"].as_str().unwrap().ends_with("_Depth32Float.ktx2"));
-    assert_eq!(ktx2_fetch::ktx::parse_header(&file_bytes(&r, e)).unwrap().vk_format, 126);
+    assert_eq!(gputools_replay_ktx2_fetch::ktx::parse_header(&file_bytes(&r, e)).unwrap().vk_format, 126);
     // Plain depth refs are probed and answer no stencil.
     let probes = r.manifest["stencil_probes"].as_array().unwrap();
     assert!(!probes.is_empty());
@@ -3036,7 +3036,7 @@ fn astc_blocks_are_written_raw_and_byte_exact() {
     let pattern: Vec<u8> = (0..16u8).collect::<Vec<u8>>().repeat(256);
     assert_eq!(blocks.len(), 4096);
     assert_eq!(blocks, pattern, "block bytes differ from the fixture's 00..0f pattern");
-    let h = ktx2_fetch::ktx::parse_header(&file_bytes(&r, e)).unwrap();
+    let h = gputools_replay_ktx2_fetch::ktx::parse_header(&file_bytes(&r, e)).unwrap();
     assert_eq!(h.vk_format, 157);
     assert_eq!(h.type_size, 1);
 }
@@ -3155,7 +3155,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - [ ] **Step 1: Write `README.md`**
 
 ```markdown
-# ktx2-fetch
+# gputools-replay-ktx2-fetch
 
 Exports every texture of an Xcode `.gputrace` capture as a lossless KTX2
 file, in its native pixel format, byte for byte, with the capture's own
@@ -3167,7 +3167,7 @@ with the `gputools-replay-hl` crate and widens the output to every format
 that crate describes and Khronos' `ktx validate` accepts: byte-aligned
 colour (8/16/32-bit, all numeric kinds, sRGB variants), single-aspect depth
 and stencil, and BC, ETC2, EAC, and ASTC block formats written as raw
-blocks. Design: `docs/superpowers/specs/2026-09-02-ktx2-fetch-hl-design.md`.
+blocks. Design: `docs/superpowers/specs/2026-09-02-gputools-replay-ktx2-fetch-hl-design.md`.
 
 ## Requirements
 
@@ -3266,7 +3266,7 @@ Pre-commit hook (rustfmt check): `git config core.hooksPath .githooks`.
 
 ```bash
 git add README.md
-git commit -m "docs: README for ktx2-fetch 0.2
+git commit -m "docs: README for gputools-replay-ktx2-fetch 0.2
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```

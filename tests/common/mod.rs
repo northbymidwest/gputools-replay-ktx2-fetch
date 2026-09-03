@@ -32,17 +32,20 @@ pub struct Run {
 }
 
 pub fn run_cli(bundle: &Path, tag: &str, extra: &[&str]) -> Run {
-    let out = std::env::temp_dir().join(format!("ktx2-fetch-oracle-{tag}-{}", std::process::id()));
+    let out = std::env::temp_dir().join(format!(
+        "gputools-replay-ktx2-fetch-oracle-{tag}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&out);
-    let o = Command::new(env!("CARGO_BIN_EXE_ktx2-fetch"))
+    let o = Command::new(env!("CARGO_BIN_EXE_gputools-replay-ktx2-fetch"))
         .arg(bundle)
         .arg("--out")
         .arg(&out)
         .args(extra)
         .output()
-        .expect("spawn ktx2-fetch");
+        .expect("spawn gputools-replay-ktx2-fetch");
     let stderr = String::from_utf8_lossy(&o.stderr).into_owned();
-    eprintln!("--- ktx2-fetch stderr ---\n{stderr}--- end ---");
+    eprintln!("--- gputools-replay-ktx2-fetch stderr ---\n{stderr}--- end ---");
     let manifest = std::fs::read(out.join("manifest.json"))
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
@@ -92,13 +95,13 @@ pub fn file_bytes(r: &Run, entry: &serde_json::Value) -> Vec<u8> {
 }
 
 pub fn level0_of(r: &Run, entry: &serde_json::Value) -> Vec<u8> {
-    ktx2_fetch::ktx::level0(&file_bytes(r, entry))
+    gputools_replay_ktx2_fetch::ktx::level0(&file_bytes(r, entry))
         .unwrap()
         .to_vec()
 }
 
 pub fn kv_of(r: &Run, entry: &serde_json::Value) -> Vec<(String, String)> {
-    ktx2_fetch::ktx::kv_pairs(&file_bytes(r, entry))
+    gputools_replay_ktx2_fetch::ktx::kv_pairs(&file_bytes(r, entry))
 }
 
 pub fn f32s(b: &[u8]) -> Vec<f32> {

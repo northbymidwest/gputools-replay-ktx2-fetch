@@ -92,7 +92,7 @@ fn provenance_kv<T: Tex>(
     let mut kv = vec![
         (
             "KTXwriter".to_string(),
-            format!("ktx2-fetch {}", crate::TOOL_VERSION),
+            format!("gputools-replay-ktx2-fetch {}", crate::TOOL_VERSION),
         ),
         ("gputrace.aspect".to_string(), aspect.to_string()),
         (
@@ -338,8 +338,10 @@ mod tests {
     use std::path::PathBuf;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("ktx2_fetch_emit_{name}_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "gputools_replay_ktx2_fetch_emit_{name}_{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture Khronos' own DFD for every VkFormat ktx2-fetch writes.
+"""Capture Khronos' own DFD for every VkFormat gputools-replay-ktx2-fetch writes.
 
 For each format: `ktx create --raw` an 8x8 file, `ktx validate` it, and
 record (a) the DFD bytes to tests/fixtures/dfd/<NAME>.dfd, (b) the header's

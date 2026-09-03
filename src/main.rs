@@ -5,9 +5,9 @@ use clap::Parser;
 use gputools_replay_hl::{
     Aspect as FetchAspect, Capture, Descriptions, Error, ManifestStatus, ReplayerConfig, Texture,
 };
-use ktx2_fetch::emit::{Context, emit_one};
-use ktx2_fetch::manifest::Manifest;
-use ktx2_fetch::sweep::{self, Fetcher};
+use gputools_replay_ktx2_fetch::emit::{Context, emit_one};
+use gputools_replay_ktx2_fetch::manifest::Manifest;
+use gputools_replay_ktx2_fetch::sweep::{self, Fetcher};
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 #[derive(Parser)]
 #[command(
-    name = "ktx2-fetch",
+    name = "gputools-replay-ktx2-fetch",
     version,
     about = "Export every texture of a .gputrace capture as lossless KTX2"
 )]
@@ -69,7 +69,7 @@ fn main() -> ExitCode {
     match run(args) {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
-            eprintln!("ktx2-fetch: {e}");
+            eprintln!("gputools-replay-ktx2-fetch: {e}");
             ExitCode::from(2)
         }
     }
@@ -127,7 +127,7 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
 
     if man.textures.is_empty() {
         eprintln!(
-            "ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, that --max-stream-ref ({}) is at least as high as the streamRefs it uses, and consider --force-load-unused",
+            "gputools-replay-ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, that --max-stream-ref ({}) is at least as high as the streamRefs it uses, and consider --force-load-unused",
             args.max_stream_ref
         );
     }
@@ -135,19 +135,21 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         && c.listed_not_answered > 0
     {
         eprintln!(
-            "ktx2-fetch: {} of the bundle's listed textures did not answer the fetch; if they are never read by a captured command, --force-load-unused makes them answer",
+            "gputools-replay-ktx2-fetch: {} of the bundle's listed textures did not answer the fetch; if they are never read by a captured command, --force-load-unused makes them answer",
             c.listed_not_answered
         );
     }
 
     let code = man.exit_code();
     if let Err(e) = man.write(&args.out.join("manifest.json")) {
-        eprintln!("ktx2-fetch: failed to write manifest.json: {e}");
+        eprintln!("gputools-replay-ktx2-fetch: failed to write manifest.json: {e}");
         match serde_json::to_string_pretty(&man) {
             Ok(json) => eprintln!(
-                "ktx2-fetch: the manifest was not written to disk; printing it here so the run is not lost:\n{json}"
+                "gputools-replay-ktx2-fetch: the manifest was not written to disk; printing it here so the run is not lost:\n{json}"
             ),
-            Err(se) => eprintln!("ktx2-fetch: could not serialise the manifest either: {se}"),
+            Err(se) => eprintln!(
+                "gputools-replay-ktx2-fetch: could not serialise the manifest either: {se}"
+            ),
         }
         return Ok(code.max(1));
     }

@@ -227,7 +227,10 @@ mod tests {
         let d = dfd::build(80, &lookup(MTLPixelFormat::BGRA8Unorm).unwrap()).unwrap();
         let kv = vec![
             ("gputrace.streamRef".to_string(), "25".to_string()),
-            ("KTXwriter".to_string(), "ktx2-fetch 0.1.0".to_string()),
+            (
+                "KTXwriter".to_string(),
+                "gputools-replay-ktx2-fetch 0.1.0".to_string(),
+            ),
         ];
         let out = write_ktx2(&bgra_params(&d, &kv), &[0u8; 64]).unwrap();
         let read = kv_pairs(&out);
@@ -298,12 +301,17 @@ mod tests {
         }
         let d = dfd::build(80, &lookup(MTLPixelFormat::BGRA8Unorm).unwrap()).unwrap();
         let kv = vec![
-            ("KTXwriter".to_string(), "ktx2-fetch test".to_string()),
+            (
+                "KTXwriter".to_string(),
+                "gputools-replay-ktx2-fetch test".to_string(),
+            ),
             ("gputrace.streamRef".to_string(), "1".to_string()),
         ];
         let out = write_ktx2(&bgra_params(&d, &kv), &[9u8; 64]).unwrap();
-        let path =
-            std::env::temp_dir().join(format!("ktx2_fetch_unit_{}.ktx2", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "gputools_replay_ktx2_fetch_unit_{}.ktx2",
+            std::process::id()
+        ));
         std::fs::write(&path, &out).unwrap();
         let st = std::process::Command::new("ktx")
             .arg("validate")

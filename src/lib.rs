@@ -1,6 +1,6 @@
-//! ktx2-fetch: lossless KTX2 export of a `.gputrace` capture's textures,
+//! gputools-replay-ktx2-fetch: lossless KTX2 export of a `.gputrace` capture's textures,
 //! on the `gputools-replay-hl` engine. See the spec in
-//! `docs/superpowers/specs/2026-09-02-ktx2-fetch-hl-design.md`.
+//! `docs/superpowers/specs/2026-09-02-gputools-replay-ktx2-fetch-hl-design.md`.
 #![deny(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 #![cfg_attr(

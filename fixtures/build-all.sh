@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p captures
-BIN="${TMPDIR:-/tmp}/ktx2-fetch-fixtures"
+BIN="${TMPDIR:-/tmp}/gputools-replay-ktx2-fetch-fixtures"
 mkdir -p "$BIN"
 
 build() {

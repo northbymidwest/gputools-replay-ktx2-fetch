@@ -23,7 +23,7 @@ fn depth32float_reads_half_everywhere() {
     assert_eq!(e["vk_format"], "D32_SFLOAT");
     assert!(e["file"].as_str().unwrap().ends_with("_Depth32Float.ktx2"));
     assert_eq!(
-        ktx2_fetch::ktx::parse_header(&file_bytes(&r, e))
+        gputools_replay_ktx2_fetch::ktx::parse_header(&file_bytes(&r, e))
             .unwrap()
             .vk_format,
         126

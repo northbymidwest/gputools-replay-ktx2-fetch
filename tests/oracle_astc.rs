@@ -24,7 +24,7 @@ fn astc_blocks_are_written_raw_and_byte_exact() {
         blocks, pattern,
         "block bytes differ from the fixture's 00..0f pattern"
     );
-    let h = ktx2_fetch::ktx::parse_header(&file_bytes(&r, e)).unwrap();
+    let h = gputools_replay_ktx2_fetch::ktx::parse_header(&file_bytes(&r, e)).unwrap();
     assert_eq!(h.vk_format, 157);
     assert_eq!(h.type_size, 1);
 }
