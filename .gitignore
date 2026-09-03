@@ -1,0 +1,7 @@
+/target
+/captures/*
+!/captures/README.md
+*.gputrace
+out/
+.superpowers/
+.DS_Store

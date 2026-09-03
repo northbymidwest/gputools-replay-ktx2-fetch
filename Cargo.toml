@@ -1,0 +1,34 @@
+[package]
+name = "ktx2-fetch"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+description = "Lossless KTX2 export of every texture in an Xcode .gputrace capture, via gputools-replay-hl"
+license = "0BSD"
+repository = "https://github.com/northbymidwest/ktx2-fetch"
+readme = "README.md"
+keywords = ["macos", "metal", "gpu", "texture", "ktx2"]
+categories = ["command-line-utilities", "rendering::data-formats"]
+publish = false
+
+[lib]
+name = "ktx2_fetch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ktx2-fetch"
+path = "src/main.rs"
+
+[dependencies]
+gputools-replay-hl = "0.1.0"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[features]
+# Gates every test that drives the real replayer or needs a capture.
+oracle = []
+
+[build-dependencies]
+toml = "1"
