@@ -9,7 +9,21 @@ repository = "https://github.com/northbymidwest/gputools-replay-ktx2-fetch"
 readme = "README.md"
 keywords = ["macos", "metal", "gpu", "texture", "ktx2"]
 categories = ["command-line-utilities", "rendering::data-formats"]
-publish = false
+# What a `cargo install` needs: the code, its tests, the DFD fixtures the
+# tests compare against, and the README/LICENSE. Repository tooling, the
+# design docs, the fixture apps, and the capture scripts stay in git.
+exclude = [
+    "/.github/",
+    "/.githooks/",
+    "/captures/",
+    "/docs/",
+    "/fixtures/",
+    "/scripts/",
+    "/tools/",
+    "/deny.toml",
+    "/typos.toml",
+    "/RELEASING.md",
+]
 
 [lib]
 name = "gputools_replay_ktx2_fetch"

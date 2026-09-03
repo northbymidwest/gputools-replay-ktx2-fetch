@@ -107,7 +107,10 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish
+        # --no-default-features applies to the verify build only (a published
+        # crate carries no feature selection): it drops the macos27 floor so the
+        # verify links the framework on this macOS 26 runner, exactly as CI does.
+        run: cargo publish --no-default-features
       - name: Tag and release
         if: ${{ !inputs.dry_run }}
         env:

@@ -23,8 +23,16 @@ written as raw blocks. Design:
 
 ## Usage
 
+Install from crates.io (`--locked` builds against the exact engine version
+the release was tested with, which the manifest's `engine` field then
+records accurately):
+
 ```
-cargo run --release -- <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
+cargo install --locked gputools-replay-ktx2-fetch
+```
+
+```
+gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
 ```
 
 Writes one `.ktx2` per fetched texture (level 0, slice 0; a combined

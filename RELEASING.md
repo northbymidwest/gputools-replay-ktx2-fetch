@@ -5,11 +5,11 @@ The crate releases through `.github/workflows/release.yml`. Every release is a
 
 ## Prerequisites (one-time)
 
-- **A macOS 27 runner.** `cargo publish` runs a verify build that links the
-  private framework through `gputools-replay-hl`, which no macOS runner below
-  27 can do. No GitHub-hosted runner is that new yet; the `publish` job runs on
-  `macos-latest` and is effective once that image reaches macOS 27 (pin it to
-  a `macos-27` label if GitHub ships one first).
+- **A macOS runner that can link the framework.** `cargo publish` runs a
+  verify build that links the private framework through `gputools-replay-hl`.
+  The `publish` job runs on `macos-latest` (macOS 26) and passes
+  `--no-default-features` to the verify build, which drops the macOS 27 floor
+  exactly as CI does; the published crate itself carries no feature selection.
 - **A crates.io trusted-publisher entry** for `gputools-replay-ktx2-fetch`:
   owner `northbymidwest`, repo `gputools-replay-ktx2-fetch`, workflow
   `release.yml`, environment `release`.
