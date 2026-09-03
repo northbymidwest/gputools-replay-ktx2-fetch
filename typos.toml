@@ -1,0 +1,5 @@
+# typos config (crate-ci/typos). Identifiers this crate inherits from its
+# dependencies and cannot respell.
+[default.extend-words]
+# gputools_replay_hl::ManifestStatus::Unparseable
+Unparseable = "Unparseable"

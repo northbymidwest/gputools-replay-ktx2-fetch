@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a bug in gputools-replay-ktx2-fetch.
+labels: ["bug"]
+assignees: ["northbymidwest"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. This tool drives Apple's private
+        `GPUToolsReplay.framework` and writes what it serves, so a
+        self-contained repro plus your exact `rustc` and macOS versions is
+        what makes a bug actionable. If the issue is a suspected memory-safety
+        or soundness problem, please report it privately instead: see
+        `.github/SECURITY.md`.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The command line you ran, and the `manifest.json` it wrote (or the error it printed).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: rustc
+    attributes:
+      label: rustc version
+      description: Output of `rustc -Vv`.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: Output of `sw_vers -productVersion`.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Tool version
+      description: Output of `gputools-replay-ktx2-fetch --version`, or the git SHA you are on.
+    validations:
+      required: true

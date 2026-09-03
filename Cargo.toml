@@ -20,13 +20,17 @@ name = "gputools-replay-ktx2-fetch"
 path = "src/main.rs"
 
 [dependencies]
-gputools-replay-hl = "0.1.0"
+gputools-replay-hl = { version = "0.1.0", default-features = false }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 
 [features]
+# Require macOS 27 (forwarded to the engine). Disable with --no-default-features
+# to also build on macOS 26, which is what hosted CI does.
+default = ["macos27"]
+macos27 = ["gputools-replay-hl/macos27"]
 # Gates every test that drives the real replayer or needs a capture.
 oracle = []
 
