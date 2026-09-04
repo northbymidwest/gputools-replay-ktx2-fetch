@@ -5,136 +5,77 @@
 [![docs.rs](https://docs.rs/gputools-replay-ktx2-fetch/badge.svg)](https://docs.rs/gputools-replay-ktx2-fetch)
 [![CI](https://github.com/northbymidwest/gputools-replay-ktx2-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/northbymidwest/gputools-replay-ktx2-fetch/actions/workflows/ci.yml)
 
-Exports every texture of an Xcode `.gputrace` capture as a lossless KTX2
-file, in its native pixel format, byte for byte, with the capture's own
-metadata attached. It exists because `gpudebug fetch`, the built-in export,
-only writes PNG, which drops alpha and destroys float range.
+Dumps the textures in an Xcode `.gputrace` capture as raw, lossless KTX2
+files. Xcode's own `gpudebug` can only export a texture as an 8-bit-per-channel
+RGB PNG, which throws away alpha, float range, depth, stencil, and compressed
+block data. This tool writes each texture exactly as the replayer serves it:
+native pixel format, byte for byte, one `.ktx2` per texture, plus a
+`manifest.json` describing the run.
 
-It reads captures through the `gputools-replay-hl` crate and writes every
-format that crate describes and Khronos' `ktx validate` accepts:
-byte-aligned colour (8/16/32-bit, all numeric kinds, sRGB variants),
-single-aspect depth and stencil, and BC, ETC2, EAC, and ASTC block formats
-written as raw blocks. Design:
-`docs/superpowers/specs/2026-09-02-gputools-replay-ktx2-fetch-hl-design.md`.
+Supported formats: byte-aligned colour (8/16/32-bit, all numeric kinds,
+sRGB variants), depth and stencil, and BC, ETC2, EAC, and ASTC as raw blocks.
+Each file's KTX2 metadata records where it came from (streamRef, format,
+stride, and the bundle's mip count, array length, and texture type when the
+bundle describes it).
 
 ## Requirements
 
-- macOS 27 with Xcode Command Line Tools (the engine links the private
-  `GPUToolsReplay` framework they ship; no entitlement is needed).
-- The `gputools-replay-hl` crate from crates.io (0.1.0), the only
-  dependency, pulled in by `cargo build`; no sibling checkout is needed.
-- Khronos `ktx` on `PATH` for the oracle suite (installed via Nix here).
-- `clang` and `gpucapture` to regenerate the fixture captures.
+- macOS 27 with the Xcode Command Line Tools. The engine
+  (`gputools-replay-hl`) links the private `GPUToolsReplay` framework those
+  tools ship, so nothing else can run it. Tested only on macOS 27; macOS 26
+  may build with `--no-default-features` but is untested.
+- No entitlement or extra setup. The replayer is a shared, crash-prone
+  system resource, though: run one instance at a time, and never interrupt
+  a run (an interrupted fetch orphans a session that locks the replayer for
+  two hours; recover with `gpudebug --terminate all` and
+  `pkill -9 -f GPUToolsReplayService`).
 
-## Usage
-
-Install from crates.io:
+## Install
 
 ```
 cargo install gputools-replay-ktx2-fetch
 ```
 
-```
-gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
-```
-
-Writes one `.ktx2` per fetched texture (level 0, slice 0; a combined
-depth-stencil resource becomes a depth file and a `_stencil` sibling) plus
-`<dir>/manifest.json`. Exit 0 when nothing failed, 1 when any texture or
-the sweep failed (the manifest says which), 2 when the run could not start.
-
-- `--max-stream-ref`: highest streamRef to sweep. streamRefs are assigned
-  by the replayer at load time and are not stored in the bundle, so the tool
-  sweeps a range and keeps what answers. By default the bound is the
-  bundle's index record count plus a margin, which the refs cannot exceed
-  (the replayer creates at most one resource per record), and 20000 when
-  the bundle cannot be read; the manifest records which. The sweep runs in
-  chunks of 2000 refs, so a timeout or replayer error costs one chunk, not
-  the run.
-- `--force-load-unused`: textures no captured command reads answer only
-  with this. On the known-textures fixture, a run without it answers the 3
-  textures a captured command uses and reports the other 4 as
-  `coverage.listed_not_answered`. When that flag is off, the tool also
-  sets `MTLREPLAYER_IGNORE_UNUSED_RESOURCE=1`, so a texture the replayer
-  cannot create because nothing uses it is skipped instead of failing the
-  whole sweep. The two are never set together: measured on this machine,
-  the ignore flag overrides force-load.
-- `--timeout` (default 600 s): per fetch. Slow is not hung: fetches take
-  from 27 seconds to over 20 minutes on large captures.
-- The binary sets `MTLREPLAYER_LOCK_PARAM_BUFFER_SIZE_TO_MAX=0` itself,
-  before anything else; without it the replayer cannot create its command
-  queue in an unentitled process. It also clears any ambient
-  `MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE` / `MTLREPLAYER_IGNORE_UNUSED_RESOURCE`
-  so the run matches what its manifest records.
-
-## What each file carries
-
-The KTX2 header describes the image in the file: one 2D image, level 0,
-slice 0, whatever the resource was. The Data Format Descriptor is derived
-from the format (channel layout, numeric kind, sRGB transfer (with the
-alpha sample of an sRGB format marked linear, as Khronos' own writer
-does)) and checked byte for byte against `ktx create`'s own output;
-primaries stay UNSPECIFIED because the capture records no colour space.
-Key/value data under `gputrace.` records the streamRef, aspect, fetched
-stride, whether padded rows were tightened, and, when the bundle's
-descriptor was attributed, the resource's mip count, array length, depth,
-texture type, usage, and whether that attribution is `certain` or
-`ambiguous`.
-
-## Coverage and attribution
-
-The bundle lists what the capture holds; the sweep learns what answers;
-the two are joined by creation-order rank (measured in the hl campaign).
-`manifest.json` reports `bundle_manifest` (listed count, or that the
-bundle has no descriptors, or could not be parsed) and `coverage`
-(answered, attributed, unattributed, listed but not answered). An
-attribution is `certain` only when the fetched and listed counts for that
-exact width, height, and format agree; otherwise it is `ambiguous`, and
-its descriptor fields are recorded but trusted for nothing.
-
-## Known gaps
-
-1. Packed colour formats (RGB10A2, RG11B10, RGB9E5, 16-bit packed) are not
-   written: the Vulkan bit order needs a fixture-level check first.
-2. Mip levels and array slices are not written. The fetch clamps past the
-   real range (measured), so the next version walks the descriptor's
-   counts, verifies each level's dimensions, and walks slices only for
-   `certain` attributions.
-3. Volumes: the fetch serves one unidentified z-plane and reports depth 1.
-   A certain-attributed volume deeper than 1 is refused by name; an
-   ambiguous one ships as one unlabelled plane.
-4. Combined depth-stencil aspects carry no descriptor.
-5. PVRTC has no KTX2 representation.
-6. Alpha is assumed straight; Metal does not record premultiplication.
-
-## Testing
+## Usage
 
 ```
-cargo test                 # no hardware: DFDs vs ktx create fixtures, writer, emitter, sweep
-tools/oracle.sh            # drives the real replayer against captures/ and runs ktx validate
+gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir>
 ```
 
-The oracle suite needs the fixture captures: `fixtures/build-all.sh`
-builds and captures all nine (known-textures, known-depth,
-known-depth-stencil, known-stencil, known-astc, known-ycbcr,
-known-ambiguous, known-3d, known-mips; see `fixtures/README.md` for what
-each proves). The sibling campaign's `known-ds-pair` fixture is
-deliberately not used: it recreates its textures inside the capture
-window, so its captures hold no stored content (measured against the
-sibling's own capture as well). `tools/capture-dfd-fixtures.py`
-regenerates the reference DFDs when a format row is added.
+Writes `<dir>/ref<N>_<W>x<H>_<Format>.ktx2` for every texture that answers
+(level 0, slice 0; a combined depth-stencil texture becomes a depth file and
+a `_stencil` sibling) and `<dir>/manifest.json` with the coverage, every
+failure, and the settings the run used. Exit 0 when nothing failed, 1 when
+any texture or the sweep failed (the manifest says which), 2 when the run
+could not start.
 
-**The replayer is a shared, crash-prone resource.** One session per
-process, one process per machine. Check `pgrep -x GPUToolsReplayService`
-prints nothing before and after a run. An interrupted fetch orphans a
-session that locks the replayer for two hours; recover with:
+Flags:
+
+- `--force-load-unused`: also fetch textures that no captured command
+  reads. Without it those are skipped and counted in the manifest as
+  `listed_not_answered`.
+- `--max-stream-ref N`: override the sweep bound. By default it comes from
+  the bundle itself and needs no tuning.
+- `--timeout SECS` (default 600): per fetch. Large captures take minutes;
+  slow is not hung.
+
+Not yet written: mip levels and array slices (only level 0 / slice 0),
+packed colour formats such as RGB10A2 and RG11B10, PVRTC, and 3D volumes
+(the replayer serves one unidentified plane, so they are refused rather than
+mislabelled). The design and the measurements behind each of these are in
+`docs/superpowers/specs/`.
+
+## Development
 
 ```
-gpudebug --terminate all
-pkill -9 -f GPUToolsReplayService
+cargo test          # no hardware needed
+tools/oracle.sh     # drives the real replayer against captures/ and runs ktx validate
 ```
 
-Pre-commit hook (rustfmt check): `git config core.hooksPath .githooks`.
+The oracle suite needs Khronos `ktx` on `PATH` and the fixture captures,
+which `fixtures/build-all.sh` builds and captures with `clang` and
+`gpucapture` (see `fixtures/README.md`). Pre-commit rustfmt hook:
+`git config core.hooksPath .githooks`.
 
 ## License
 
