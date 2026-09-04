@@ -1,5 +1,10 @@
 # gputools-replay-ktx2-fetch
 
+[![github](https://img.shields.io/badge/github-northbymidwest%2Fgputools--replay--ktx2--fetch-blue?logo=github)](https://github.com/northbymidwest/gputools-replay-ktx2-fetch)
+[![crates.io](https://img.shields.io/crates/v/gputools-replay-ktx2-fetch.svg)](https://crates.io/crates/gputools-replay-ktx2-fetch)
+[![docs.rs](https://docs.rs/gputools-replay-ktx2-fetch/badge.svg)](https://docs.rs/gputools-replay-ktx2-fetch)
+[![CI](https://github.com/northbymidwest/gputools-replay-ktx2-fetch/actions/workflows/ci.yml/badge.svg)](https://github.com/northbymidwest/gputools-replay-ktx2-fetch/actions/workflows/ci.yml)
+
 Exports every texture of an Xcode `.gputrace` capture as a lossless KTX2
 file, in its native pixel format, byte for byte, with the capture's own
 metadata attached. It exists because `gpudebug fetch`, the built-in export,
