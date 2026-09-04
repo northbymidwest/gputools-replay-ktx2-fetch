@@ -229,7 +229,7 @@ mod tests {
             ("gputrace.streamRef".to_string(), "25".to_string()),
             (
                 "KTXwriter".to_string(),
-                "gputools-replay-ktx2-fetch 0.1.1".to_string(),
+                "gputools-replay-ktx2-fetch 0.1.2".to_string(),
             ),
         ];
         let out = write_ktx2(&bgra_params(&d, &kv), &[0u8; 64]).unwrap();

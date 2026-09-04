@@ -1,6 +1,6 @@
 [package]
 name = "gputools-replay-ktx2-fetch"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.98"
 description = "Lossless KTX2 export of every texture in an Xcode .gputrace capture, via gputools-replay-hl"
