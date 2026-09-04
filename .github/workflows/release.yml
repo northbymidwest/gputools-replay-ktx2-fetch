@@ -43,45 +43,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Preflight
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-          DRY: ${{ inputs.dry_run }}
-        run: |
-          set -eu
-          fail() { echo "::error::$1"; exit 1; }
-          soft() { if [ "$DRY" = "true" ]; then echo "::warning::$1"; else fail "$1"; fi; }
-
-          case "$VERSION" in
-            v*) fail "version must not start with v" ;;
-            [0-9]*.[0-9]*.[0-9]*) : ;;
-            *) fail "version must look like MAJOR.MINOR.PATCH" ;;
-          esac
-
-          # The manifest must carry this version and must no longer be
-          # publish=false.
-          v=$(sed -n 's/^version = "\([0-9.]*\)"$/\1/p' Cargo.toml | head -1)
-          [ "$v" = "$VERSION" ] || fail "Cargo.toml version is $v, expected $VERSION"
-          if grep -q '^publish = false' Cargo.toml; then
-            soft "Cargo.toml is still publish=false; remove it to release"
-          fi
-
-          # The tag must not already exist: protected tags cannot be moved.
-          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
-            soft "tag v$VERSION already exists, and protected tags cannot be moved"
-          fi
-
-          # A changelog section for this version must exist and be non-empty.
-          awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f=1; next} /^## / {f=0} f' \
-            CHANGELOG.md > /tmp/notes.md
-          grep -q '[^[:space:]]' /tmp/notes.md || fail "CHANGELOG.md has no ## $VERSION section"
-
-          # The newest completed CI run for this commit must be green.
-          sha=$(git rev-parse HEAD)
-          concl=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$sha&status=completed" \
-            --jq '[.workflow_runs[] | select(.name == "CI")] | sort_by(.created_at) | last | .conclusion')
-          [ "$concl" = "success" ] || soft "newest CI run for $sha is '$concl', not success"
+      - uses: northbymidwest/gh-actions/release-preflight@6ca17f06b2ba856c90d9c3dff2edb1d5bcaebec8 # v0.1.0
+        with:
+          version: ${{ inputs.version }}
+          dry-run: ${{ inputs.dry_run }}
+          crates: Cargo.toml
+          token: ${{ github.token }}
 
   publish:
     needs: preflight
@@ -118,29 +85,13 @@ jobs:
         run: cargo publish --no-default-features
       # The tag is pushed with a read-write deploy key, the one bypass actor
       # the `protect version tags` ruleset allows; its private half exists
-      # only as the release environment's RELEASE_TAG_KEY secret. Host keys
-      # come from the GitHub meta API and are pinned for this one push.
-      - name: Tag and release
+      # only as the release environment's RELEASE_TAG_KEY secret.
+      - uses: northbymidwest/gh-actions/release-tag@6ca17f06b2ba856c90d9c3dff2edb1d5bcaebec8 # v0.1.0
         if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-          RELEASE_TAG_KEY: ${{ secrets.RELEASE_TAG_KEY }}
-        run: |
-          set -eu
-          sha=$(git rev-parse HEAD)
-          dir=$(mktemp -d)
-          trap 'rm -rf "$dir"' EXIT
-          printf '%s\n' "$RELEASE_TAG_KEY" > "$dir/key"
-          chmod 600 "$dir/key"
-          gh api meta --jq '.ssh_keys[] | "github.com \(.)"' > "$dir/known_hosts"
-          GIT_SSH_COMMAND="ssh -F /dev/null -i $dir/key -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile=$dir/known_hosts -o StrictHostKeyChecking=yes" \
-            git push "git@github.com:${{ github.repository }}.git" "$sha:refs/tags/v$VERSION"
-          awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f=1; next} /^## / {f=0} f' \
-            CHANGELOG.md > /tmp/notes.md
-          gh release create "v$VERSION" --title "v$VERSION" \
-            --notes-file /tmp/notes.md --prerelease --verify-tag
-          echo "::notice::published $VERSION and tagged v$VERSION at $sha"
+        with:
+          version: ${{ inputs.version }}
+          deploy-key: ${{ secrets.RELEASE_TAG_KEY }}
+          token: ${{ github.token }}
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
         env:
