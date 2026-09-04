@@ -10,6 +10,7 @@ name: CI
 # committed and a replayer session, so they run locally, never here.
 on:
   push:
+    branches: [main]
   pull_request:
   # Toolchains move between commits; a weekly unprompted run catches breakage
   # that would otherwise sit unseen until the next push. Off the hour so it
