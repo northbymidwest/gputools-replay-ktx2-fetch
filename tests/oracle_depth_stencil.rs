@@ -13,7 +13,14 @@ fn a_combined_resource_yields_a_depth_file_and_a_stencil_sibling() {
     let Some(cap) = capture("known-depth-stencil") else {
         return;
     };
-    let r = run_cli(&cap, "depthstencil", &["--max-stream-ref", "200"]);
+    // This fixture's content was stored before the capture boundary and is not
+    // reproduced by replaying its commands, so it defines the snapshot state
+    // only (MEASURED: after play_all it reads NaN/zero/altered). Fetch at start.
+    let r = run_cli(
+        &cap,
+        "depthstencil",
+        &["--fetch-at", "start", "--max-stream-ref", "200"],
+    );
     assert_eq!(r.status, 0, "{}", r.stderr);
     validate_all(&r.out);
     let es = entries(&r);

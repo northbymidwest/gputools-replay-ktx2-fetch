@@ -8,9 +8,10 @@
 Dumps the textures in an Xcode `.gputrace` capture as raw, lossless KTX2
 files. Xcode's own `gpudebug` can only export a texture as an 8-bit-per-channel
 RGB PNG, which throws away alpha, float range, depth, stencil, and compressed
-block data. This tool writes each texture exactly as the replayer serves it:
-native pixel format, byte for byte, one `.ktx2` per texture, plus a
-`manifest.json` describing the run.
+block data. This tool replays the captured frame and writes each texture as it stands
+at the end of it, exactly as the replayer serves it: native pixel format,
+byte for byte, one `.ktx2` per texture, plus a `manifest.json` describing
+the run.
 
 Supported formats: byte-aligned colour (8/16/32-bit, all numeric kinds,
 sRGB variants), depth and stencil, and BC, ETC2, EAC, and ASTC as raw blocks.
@@ -58,6 +59,12 @@ Flags:
   the bundle itself and needs no tuning.
 - `--timeout SECS` (default 600): per fetch. Large captures take minutes;
   slow is not hung.
+- `--fetch-at end|start|N` (default `end`): where in the captured command
+  stream to fetch. `end` replays every command first and returns what the
+  frame produced, which is what `gpudebug` shows. `start` returns the
+  capture's stored snapshot with nothing replayed (the previous frame's
+  leftovers for render targets). A number replays up to that command
+  index.
 
 Not yet written: mip levels and array slices (only level 0 / slice 0),
 packed colour formats such as RGB10A2 and RG11B10, PVRTC, and 3D volumes

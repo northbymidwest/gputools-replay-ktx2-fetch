@@ -32,6 +32,8 @@ pub struct Context<'a> {
     pub out: &'a Path,
     pub bundle: &'a str,
     pub force_load_unused: bool,
+    /// The command index playback reached before the fetch.
+    pub command_index: u32,
 }
 
 pub fn texture_type_name(t: MTLTextureType) -> &'static str {
@@ -107,6 +109,10 @@ fn provenance_kv<T: Tex>(
         (
             "gputrace.bytesPerRow".to_string(),
             t.bytes_per_row().to_string(),
+        ),
+        (
+            "gputrace.commandIndex".to_string(),
+            ctx.command_index.to_string(),
         ),
         (
             "gputrace.mtlPixelFormat".to_string(),
@@ -369,6 +375,7 @@ mod tests {
             out: &out,
             bundle: "cap.gputrace",
             force_load_unused: false,
+            command_index: 369,
         };
         let mut man = Manifest::new("cap.gputrace".into(), 10, false, 60);
         emit_one(&ctx, f, &mut man);
@@ -409,6 +416,10 @@ mod tests {
         assert!(
             kv.iter()
                 .any(|(k, v)| k == "gputrace.rowsRepacked" && v == "false")
+        );
+        assert!(
+            kv.iter()
+                .any(|(k, v)| k == "gputrace.commandIndex" && v == "369")
         );
         assert!(
             kv.iter().all(|(k, _)| k != "gputrace.mipLevelCount"),

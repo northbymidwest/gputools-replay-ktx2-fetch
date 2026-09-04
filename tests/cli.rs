@@ -14,6 +14,7 @@ fn help_lists_every_flag() {
         "--max-stream-ref",
         "--force-load-unused",
         "--timeout",
+        "--fetch-at",
     ] {
         assert!(text.contains(flag), "missing {flag} in:\n{text}");
     }

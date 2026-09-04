@@ -22,6 +22,47 @@ pub struct Coverage {
     pub listed_not_answered: usize,
 }
 
+/// Where in the captured command stream the fetch happens (spec 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchAt {
+    /// After replaying the whole command stream: what the frame produced.
+    End,
+    /// Before any command runs: the capture's stored snapshot.
+    Start,
+    /// After replaying up to this command index.
+    Index(u32),
+}
+
+impl std::str::FromStr for FetchAt {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "end" => Ok(FetchAt::End),
+            "start" => Ok(FetchAt::Start),
+            other => other
+                .parse::<u32>()
+                .map(FetchAt::Index)
+                .map_err(|_| format!("expected `end`, `start`, or a command index, got `{other}`")),
+        }
+    }
+}
+
+impl std::fmt::Display for FetchAt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FetchAt::End => f.write_str("end"),
+            FetchAt::Start => f.write_str("start"),
+            FetchAt::Index(n) => write!(f, "{n}"),
+        }
+    }
+}
+
+impl Serialize for FetchAt {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_str(self)
+    }
+}
+
 /// Where the sweep's upper bound came from (spec 3).
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -99,6 +140,10 @@ pub struct Manifest {
     pub engine: String,
     pub max_stream_ref: u64,
     pub max_stream_ref_source: BoundSource,
+    /// Where the fetch was asked to happen (`--fetch-at`).
+    pub fetch_at: FetchAt,
+    /// The command index playback actually reached before any fetch.
+    pub replayed_to_command_index: u32,
     pub force_load_unused: bool,
     pub timeout_secs: u64,
     pub assumptions: Vec<String>,
@@ -125,12 +170,15 @@ impl Manifest {
             engine: crate::engine().to_string(),
             max_stream_ref,
             max_stream_ref_source: BoundSource::Flag,
+            fetch_at: FetchAt::End,
+            replayed_to_command_index: 0,
             force_load_unused,
             timeout_secs,
             assumptions: vec![
                 "MTLREPLAYER_LOCK_PARAM_BUFFER_SIZE_TO_MAX=0 was set; without it the replayer cannot create its command queue in an unentitled process".to_string(),
                 format!("MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE={}; textures no captured command reads answer only when it is 1", u8::from(force_load_unused)),
                 format!("MTLREPLAYER_IGNORE_UNUSED_RESOURCE={}; when not force-loading, a texture the replayer cannot create because no captured command uses it is skipped instead of failing the whole fetch", u8::from(!force_load_unused)),
+                "textures are fetched at the playback position fetch_at (default: the end of the captured command stream, what the frame produced; `start` is the capture's stored snapshot); replayed_to_command_index is the index playback reached".to_string(),
                 "streamRefs are swept 0..=max_stream_ref in chunks; they are assigned by the replayer's load path and are not stored in the bundle, but the bundle's index record count bounds them".to_string(),
                 "alpha is assumed straight (Metal does not record premultiplication)".to_string(),
                 "descriptor attribution is by creation-order rank; 'ambiguous' marks geometry groups where fetched and listed counts differ".to_string(),
@@ -229,6 +277,16 @@ mod tests {
             "coverage is omitted without a parsed manifest"
         );
         assert_eq!(v["sweep_error"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn fetch_at_parses_and_serialises_as_a_string() {
+        assert_eq!("end".parse::<FetchAt>(), Ok(FetchAt::End));
+        assert_eq!("start".parse::<FetchAt>(), Ok(FetchAt::Start));
+        assert_eq!("120".parse::<FetchAt>(), Ok(FetchAt::Index(120)));
+        assert!("middle".parse::<FetchAt>().is_err());
+        assert_eq!(serde_json::to_string(&FetchAt::End).unwrap(), "\"end\"");
+        assert_eq!(serde_json::to_string(&FetchAt::Index(7)).unwrap(), "\"7\"");
     }
 
     #[test]

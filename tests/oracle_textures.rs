@@ -9,10 +9,19 @@ fn known_textures_late_writes_seven_attributed_bgra_files() {
     let Some(cap) = capture("known-textures-late") else {
         return;
     };
+    // This fixture's content was stored before the capture boundary and is not
+    // reproduced by replaying its commands, so it defines the snapshot state
+    // only (MEASURED: after play_all it reads NaN/zero/altered). Fetch at start.
     let r = run_cli(
         &cap,
         "textures",
-        &["--force-load-unused", "--max-stream-ref", "200"],
+        &[
+            "--fetch-at",
+            "start",
+            "--force-load-unused",
+            "--max-stream-ref",
+            "200",
+        ],
     );
     assert_eq!(r.status, 0, "{}", r.stderr);
     let files = validate_all(&r.out);

@@ -80,6 +80,22 @@ gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [-
 - `--timeout` (default 600): per-fetch timeout passed to
   `Capture::set_timeout`. Fetch latency legitimately ranges from about 27
   seconds to over 20 minutes on large captures.
+- `--fetch-at end|start|<index>` (default `end`): the playback position of
+  every fetch. `end` calls `play_all()` first and returns what the frame
+  produced, matching `gpudebug`, which fetches at its current position
+  (MEASURED on `vibeboy_winit.gputrace`: identical distinct-colour counts
+  after replay, solid black before). `start` fetches the capture's stored
+  snapshot with nothing replayed, which is the previous frame's state for
+  persistent render targets; 0.1.x did this unconditionally and only looked
+  right on captures whose frames rewrite the same bytes. A number calls
+  `play_to(n)`; the manifest records both the request (`fetch_at`) and the
+  index reached (`replayed_to_command_index`), and the tool warns when they
+  differ. The two-phase fixture captures define only the snapshot state
+  (their content was produced before the capture boundary and replaying
+  their commands does not reproduce it), so their oracle tests pass
+  `--fetch-at start`; a force-loaded texture reads zero after replay, and on
+  `known-textures-late` a post-replay fetch under force-load fails outright
+  (both a substrate finding).
 
 The crate is `gputools-replay-ktx2-fetch` version `0.1.0`, edition 2024. ("0.2" in this document names the rewrite's generation relative to tool-2, not the crate version: the tool-2 crate was a throwaway and this crate starts at 0.1.0.) One binary, one
 library (`gputools_replay_ktx2_fetch`) so the modules are unit-testable.
@@ -148,6 +164,18 @@ clippy::indexing_slicing)` outside tests, inherited from tool-2.
 1. `Capture::open(bundle)`. The substrate checks the bundle's shape and
    the unlock env var before touching anything global, so the tool does
    no pre-validation of its own.
+1. **Position playback** per `--fetch-at`: `play_all()` by default. A session opens at
+   command 0, where a render target or drawable still holds its pre-frame
+   contents (MEASURED on a wgpu capture, `vibeboy_winit.gputrace`: both
+   drawables fetch as solid black at index 0; after `play_all` to index
+   369 one carries the rendered frame with exactly the 4,451 distinct
+   colours `gpudebug` exports, and a compute-written texture changes in
+   20,871 bytes). The tool's purpose is the textures the frame produced,
+   so every fetch happens at the end of the command stream, and the index
+   reached is recorded in the manifest (`replayed_to_command_index`) and
+   in each file's `gputrace.commandIndex`. The fixture captures cannot
+   show this difference: their content is blit-stored before the capture
+   boundary, so start and end of frame are identical there.
 2. **Manifest status.** `cap.manifest_status()` is recorded verbatim:
    `Ok(n)`, the number of textures the bundle lists; `NoDescriptors`
    (parsed, zero descriptors: `sample.gputrace`'s older schema); or
@@ -390,6 +418,7 @@ gputrace.assumptions      MTLREPLAYER_LOCK_PARAM_BUFFER_SIZE_TO_MAX=0; MTLREPLAY
 gputrace.bundle           <bundle path as given on the command line>
 gputrace.bytesPerImage    <as fetched>
 gputrace.bytesPerRow      <stride as fetched>
+gputrace.commandIndex     <command index playback reached before the fetch>
 gputrace.descriptorAttribution  certain | ambiguous   (desc)
 gputrace.depth            <descriptor depth: 1 for 2D, N for a volume> (desc)
 gputrace.mipLevelCount    <n>                        (desc)
@@ -422,6 +451,8 @@ information.
   "engine": "gputools-replay-hl <version from cargo metadata>",
   "max_stream_ref": 1619,
   "max_stream_ref_source": "bundle_record_count" | "flag" | "default",
+  "fetch_at": "end",
+  "replayed_to_command_index": 369,
   "force_load_unused": false,
   "timeout_secs": 600,
   "assumptions": ["..."],

@@ -6,6 +6,15 @@ Notable changes per release. Dates are the publish date.
 
 ### Changed
 
+- Textures are fetched after replaying the captured command stream, so each
+  file holds the texture as the frame left it, which is what gpudebug shows.
+  Previously fetches happened at command 0, where render targets and
+  drawables still held their pre-frame contents (a wgpu capture's rendered
+  drawable exported as solid black; its compute output differed from
+  gpudebug's in 0.38% of pixels). New flag `--fetch-at end|start|<index>`
+  selects the playback position; the manifest records `fetch_at` and
+  `replayed_to_command_index`, and every file carries
+  `gputrace.commandIndex`.
 - The engine dependency is pinned exactly (`gputools-replay-hl = "=0.1.1"`),
   so an unlocked `cargo install` still builds against the tested engine.
 

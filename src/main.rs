@@ -6,7 +6,7 @@ use gputools_replay_hl::{
     Aspect as FetchAspect, Capture, Descriptions, Error, ManifestStatus, ReplayerConfig, Texture,
 };
 use gputools_replay_ktx2_fetch::emit::{Context, emit_one};
-use gputools_replay_ktx2_fetch::manifest::Manifest;
+use gputools_replay_ktx2_fetch::manifest::{FetchAt, Manifest};
 use gputools_replay_ktx2_fetch::sweep::{self, Fetcher};
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
@@ -39,6 +39,12 @@ struct Args {
     /// Per-fetch timeout in seconds. A large capture can take minutes.
     #[arg(long, default_value_t = 600)]
     timeout: u64,
+    /// Where in the captured command stream to fetch: `end` replays every
+    /// command first and returns what the frame produced (what gpudebug
+    /// shows); `start` returns the capture's stored snapshot with nothing
+    /// replayed; a number replays up to that command index.
+    #[arg(long, default_value = "end")]
+    fetch_at: FetchAt,
 }
 
 fn main() -> ExitCode {
@@ -105,6 +111,23 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
     let bundle = args.bundle.display().to_string();
     let mut cap = Capture::open(&args.bundle)?;
     cap.set_timeout(Duration::from_secs(args.timeout));
+    // Position playback before any fetch. A session opens at command 0,
+    // where a render target or drawable still holds its pre-frame contents
+    // (MEASURED: a drawable fetched at index 0 is black; after play_all it
+    // carries the rendered frame), so the default replays everything.
+    match args.fetch_at {
+        FetchAt::End => cap.play_all(),
+        FetchAt::Start => {}
+        FetchAt::Index(n) => cap.play_to(n),
+    }
+    let command_index = cap.command_index();
+    if let FetchAt::Index(n) = args.fetch_at
+        && command_index != n
+    {
+        eprintln!(
+            "gputools-replay-ktx2-fetch: asked to replay to command {n}; playback stopped at {command_index}"
+        );
+    }
     let live = Live(cap);
 
     let bound = sweep::bound(&live, args.max_stream_ref);
@@ -115,6 +138,8 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         args.timeout,
     );
     man.max_stream_ref_source = bound.source;
+    man.fetch_at = args.fetch_at;
+    man.replayed_to_command_index = command_index;
     let sweep = sweep::run(&live, &bound);
     man.bundle_manifest = sweep.bundle_manifest;
     man.coverage = sweep.coverage;
@@ -127,6 +152,7 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         out: &args.out,
         bundle: &bundle,
         force_load_unused: args.force_load_unused,
+        command_index,
     };
     for f in &sweep.fetched {
         emit_one(&ctx, f, &mut man);
