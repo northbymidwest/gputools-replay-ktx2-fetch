@@ -56,10 +56,17 @@ The 0.2 rewrite exists for two reasons:
 gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
 ```
 
-- `--max-stream-ref` (default 2000): highest streamRef swept. streamRef
+- `--max-stream-ref`: highest streamRef swept, as an override. streamRef
   values are assigned by the replayer's load path and are not stored in
   the bundle (MEASURED, dossier 00), so a sweep is the only way to learn
-  them. Refs are sparse; the tool keeps whatever answers.
+  them; but the replayer creates at most one resource per index record, so
+  the bundle's record count bounds them (MEASURED: retroarch has 1555
+  records and its textures fetch at refs up to 1113). Default: the record
+  count plus a margin of 64, via `Capture::record_count()` (hl 0.1.1), or
+  20000 when the bundle cannot be read. The manifest records the bound and
+  its source. Refs are sparse; the tool keeps whatever answers. A
+  nonexistent ref costs about 17 microseconds (MEASURED: 2000 vs 99999 refs
+  on `known-textures-late`, 0.36 s vs 2.0 s), so a wide bound is cheap.
 - `--force-load-unused`: sets `MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=1`
   via `ReplayerConfig`. Needed for captures whose textures are never read
   by a captured command (MEASURED on `known-textures-late`: 3 of 7 answer
@@ -142,7 +149,10 @@ clippy::indexing_slicing)` outside tests, inherited from tool-2.
    `Unparseable` (hl carries no reason string). This is the coverage
    denominator and is independent of every later step.
 3. **Pass 1 (colour, compressed, depth, plain stencil).**
-   `cap.textures(0..=max_stream_ref)`. Each `Texture` is classified by
+   `cap.textures(range)` for each chunk of 2000 refs up to the bound; a
+   chunk that fails is recorded in `sweep_error` and the others still
+   count, and coverage is withheld when any chunk failed. Each `Texture`
+   is classified by
    `format_kind()`:
    - `is_depth_only()` -> `Aspect::Depth`
    - `is_stencil_only()` -> `Aspect::Stencil` (a base `Stencil8`, or an
@@ -405,7 +415,8 @@ information.
   "bundle": "...",
   "tool_version": "0.1.0",
   "engine": "gputools-replay-hl <version from cargo metadata>",
-  "max_stream_ref": 2000,
+  "max_stream_ref": 1619,
+  "max_stream_ref_source": "bundle_record_count" | "flag" | "default",
   "force_load_unused": false,
   "timeout_secs": 600,
   "assumptions": ["..."],

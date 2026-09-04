@@ -34,7 +34,7 @@ name = "gputools-replay-ktx2-fetch"
 path = "src/main.rs"
 
 [dependencies]
-gputools-replay-hl = { version = "0.1.0", default-features = false }
+gputools-replay-hl = { version = "0.1.1", default-features = false }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

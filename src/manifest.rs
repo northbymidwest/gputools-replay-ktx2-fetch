@@ -22,6 +22,18 @@ pub struct Coverage {
     pub listed_not_answered: usize,
 }
 
+/// Where the sweep's upper bound came from (spec 3).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundSource {
+    /// `--max-stream-ref` was given.
+    Flag,
+    /// The bundle's index record count, plus a margin.
+    BundleRecordCount,
+    /// The bundle could not be read; the built-in ceiling.
+    Default,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Attribution {
@@ -86,6 +98,7 @@ pub struct Manifest {
     pub tool_version: String,
     pub engine: String,
     pub max_stream_ref: u64,
+    pub max_stream_ref_source: BoundSource,
     pub force_load_unused: bool,
     pub timeout_secs: u64,
     pub assumptions: Vec<String>,
@@ -111,13 +124,14 @@ impl Manifest {
             tool_version: crate::TOOL_VERSION.to_string(),
             engine: crate::engine().to_string(),
             max_stream_ref,
+            max_stream_ref_source: BoundSource::Flag,
             force_load_unused,
             timeout_secs,
             assumptions: vec![
                 "MTLREPLAYER_LOCK_PARAM_BUFFER_SIZE_TO_MAX=0 was set; without it the replayer cannot create its command queue in an unentitled process".to_string(),
                 format!("MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE={}; textures no captured command reads answer only when it is 1", u8::from(force_load_unused)),
                 format!("MTLREPLAYER_IGNORE_UNUSED_RESOURCE={}; when not force-loading, a texture the replayer cannot create because no captured command uses it is skipped instead of failing the whole fetch", u8::from(!force_load_unused)),
-                "streamRefs are swept 0..=max_stream_ref; they are assigned by the replayer's load path and are not stored in the bundle".to_string(),
+                "streamRefs are swept 0..=max_stream_ref in chunks; they are assigned by the replayer's load path and are not stored in the bundle, but the bundle's index record count bounds them".to_string(),
                 "alpha is assumed straight (Metal does not record premultiplication)".to_string(),
                 "descriptor attribution is by creation-order rank; 'ambiguous' marks geometry groups where fetched and listed counts differ".to_string(),
             ],

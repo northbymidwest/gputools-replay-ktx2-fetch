@@ -40,9 +40,14 @@ depth-stencil resource becomes a depth file and a `_stencil` sibling) plus
 `<dir>/manifest.json`. Exit 0 when nothing failed, 1 when any texture or
 the sweep failed (the manifest says which), 2 when the run could not start.
 
-- `--max-stream-ref` (default 2000): streamRefs are assigned by the
-  replayer at load time and are not stored in the bundle, so the tool
-  sweeps a range and keeps what answers.
+- `--max-stream-ref`: highest streamRef to sweep. streamRefs are assigned
+  by the replayer at load time and are not stored in the bundle, so the tool
+  sweeps a range and keeps what answers. By default the bound is the
+  bundle's index record count plus a margin, which the refs cannot exceed
+  (the replayer creates at most one resource per record), and 20000 when
+  the bundle cannot be read; the manifest records which. The sweep runs in
+  chunks of 2000 refs, so a timeout or replayer error costs one chunk, not
+  the run.
 - `--force-load-unused`: textures no captured command reads answer only
   with this. On the known-textures fixture, a run without it answers the 3
   textures a captured command uses and reports the other 4 as

@@ -4,7 +4,8 @@
 
 use crate::emit::{Attributed, Fetched};
 use crate::manifest::{
-    Attribution, BundleManifest, Coverage, Duplicate, Failure, ProbeOutcome, StencilProbe,
+    Attribution, BoundSource, BundleManifest, Coverage, Duplicate, Failure, ProbeOutcome,
+    StencilProbe,
 };
 use crate::tex::{Aspect, Tex, classify};
 use gputools_replay_hl::{Descriptions, Error, ManifestStatus, TextureDescriptor};
@@ -14,9 +15,67 @@ use std::ops::RangeInclusive;
 pub trait Fetcher {
     type Tex: Tex;
     fn manifest_status(&self) -> ManifestStatus;
+    /// The bundle's index record count, an upper bound on the highest
+    /// streamRef the replayer can assign (it creates at most one resource per
+    /// record). `None` when the bundle cannot be read.
+    fn record_count(&self) -> Option<usize>;
     fn textures(&self, refs: RangeInclusive<u64>) -> Result<Vec<Self::Tex>, Error>;
     fn stencil_aspects(&self, refs: &[u64]) -> Result<Vec<Self::Tex>, Error>;
     fn describe(&self, texs: &[Self::Tex]) -> Descriptions;
+}
+
+/// The sweep ceiling when the bundle gives no record count.
+pub const DEFAULT_MAX_STREAM_REF: u64 = 20_000;
+/// Headroom over the record count, in case the load path assigns a few refs
+/// past the records it creates resources from.
+pub const RECORD_COUNT_MARGIN: u64 = 64;
+/// Refs per fetch in pass 1. A fetch is all-or-nothing under a timeout or a
+/// replayer error, so this bounds what one failure can lose. MEASURED: a
+/// nonexistent ref costs about 17 microseconds, so the sweep width itself is
+/// cheap.
+pub const CHUNK: u64 = 2_000;
+
+/// The sweep's upper bound and where it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Bound {
+    pub max_stream_ref: u64,
+    pub source: BoundSource,
+}
+
+/// Spec 3: an explicit `--max-stream-ref` wins; otherwise the bundle's index
+/// record count plus a margin; otherwise the built-in ceiling.
+pub fn bound<F: Fetcher>(f: &F, flag: Option<u64>) -> Bound {
+    if let Some(max_stream_ref) = flag {
+        return Bound {
+            max_stream_ref,
+            source: BoundSource::Flag,
+        };
+    }
+    match f.record_count() {
+        Some(n) => Bound {
+            max_stream_ref: (n as u64).saturating_add(RECORD_COUNT_MARGIN),
+            source: BoundSource::BundleRecordCount,
+        },
+        None => Bound {
+            max_stream_ref: DEFAULT_MAX_STREAM_REF,
+            source: BoundSource::Default,
+        },
+    }
+}
+
+/// The chunk ranges pass 1 fetches for a bound.
+pub fn chunks(max_stream_ref: u64) -> Vec<RangeInclusive<u64>> {
+    let mut out = Vec::new();
+    let mut start = 0u64;
+    loop {
+        let end = start.saturating_add(CHUNK - 1).min(max_stream_ref);
+        out.push(start..=end);
+        if end == max_stream_ref {
+            break;
+        }
+        start = end + 1;
+    }
+    out
 }
 
 pub struct Sweep<T> {
@@ -108,7 +167,7 @@ fn grade<T: Tex>(texs: &[T], d: &Descriptions) -> HashMap<Key, Attribution> {
         .collect()
 }
 
-pub fn run<F: Fetcher>(f: &F, max_stream_ref: u64) -> Sweep<F::Tex> {
+pub fn run<F: Fetcher>(f: &F, bound: &Bound) -> Sweep<F::Tex> {
     let status = f.manifest_status();
     let bundle_manifest = match status {
         ManifestStatus::Ok(n) => BundleManifest::Ok { textures_listed: n },
@@ -125,20 +184,32 @@ pub fn run<F: Fetcher>(f: &F, max_stream_ref: u64) -> Sweep<F::Tex> {
         sweep_error: None,
     };
 
-    // Pass 1.
-    let pass1 = match f.textures(0..=max_stream_ref) {
-        Ok(t) => t,
-        Err(e) => {
-            sweep.sweep_error = Some(format!("pass 1 (plane 0 sweep): {e}"));
-            return sweep;
+    // Pass 1, in chunks: a fetch is all-or-nothing, so a failed chunk is
+    // recorded and the others still count. Coverage is reported only when
+    // every chunk answered, since a gap would make its numbers meaningless.
+    let ranges = chunks(bound.max_stream_ref);
+    let mut pass1 = Vec::new();
+    let mut chunk_errors = Vec::new();
+    for range in &ranges {
+        match f.textures(range.clone()) {
+            Ok(t) => pass1.extend(t),
+            Err(e) => chunk_errors.push(format!("refs {}..={}: {e}", range.start(), range.end())),
         }
-    };
+    }
+    if !chunk_errors.is_empty() {
+        sweep.sweep_error = Some(format!(
+            "pass 1 (plane 0 sweep) failed for {} of {} chunks: {}",
+            chunk_errors.len(),
+            ranges.len(),
+            chunk_errors.join("; ")
+        ));
+    }
     let kept = dedupe(pass1, &mut sweep.duplicates, &mut sweep.failures);
 
     // Describe and grade.
     let described = f.describe(&kept);
     let grades = grade(&kept, &described);
-    if let ManifestStatus::Ok(_) = status {
+    if let (ManifestStatus::Ok(_), true) = (status, chunk_errors.is_empty()) {
         let attributed = described.per_texture.iter().flatten().count();
         sweep.coverage = Some(Coverage {
             answered: kept.len(),
@@ -205,7 +276,13 @@ pub fn run<F: Fetcher>(f: &F, max_stream_ref: u64) -> Sweep<F::Tex> {
                     });
                 }
             }
-            Err(e) => sweep.sweep_error = Some(format!("pass 2 (stencil aspects): {e}")),
+            Err(e) => {
+                let msg = format!("pass 2 (stencil aspects): {e}");
+                sweep.sweep_error = Some(match sweep.sweep_error.take() {
+                    Some(prev) => format!("{prev}; {msg}"),
+                    None => msg,
+                });
+            }
         }
     }
     sweep
@@ -219,21 +296,44 @@ mod tests {
 
     struct Fake {
         status: ManifestStatus,
-        pass1: RefCell<Option<Result<Vec<FakeTex>, Error>>>,
+        /// `Err` makes every chunk fail.
+        pass1: Result<Vec<FakeTex>, ()>,
+        /// A chunk whose start ref equals this fails.
+        fail_chunk_at: Option<u64>,
+        requested: RefCell<Vec<RangeInclusive<u64>>>,
+        record_count: Option<usize>,
         stencil: RefCell<Option<Result<Vec<FakeTex>, Error>>>,
         attributed: HashMap<u64, TextureDescriptor>,
         unplaced: Vec<TextureDescriptor>,
+    }
+
+    fn ten() -> Bound {
+        Bound {
+            max_stream_ref: 10,
+            source: BoundSource::Flag,
+        }
     }
 
     impl Fake {
         fn new(status: ManifestStatus, pass1: Result<Vec<FakeTex>, Error>) -> Self {
             Self {
                 status,
-                pass1: RefCell::new(Some(pass1)),
+                pass1: pass1.map_err(|_| ()),
+                fail_chunk_at: None,
+                requested: RefCell::new(Vec::new()),
+                record_count: None,
                 stencil: RefCell::new(Some(Ok(Vec::new()))),
                 attributed: HashMap::new(),
                 unplaced: Vec::new(),
             }
+        }
+        fn with_record_count(mut self, n: Option<usize>) -> Self {
+            self.record_count = n;
+            self
+        }
+        fn failing_chunk_at(mut self, start: u64) -> Self {
+            self.fail_chunk_at = Some(start);
+            self
         }
         fn with_stencil(self, r: Result<Vec<FakeTex>, Error>) -> Self {
             *self.stencil.borrow_mut() = Some(r);
@@ -254,8 +354,22 @@ mod tests {
         fn manifest_status(&self) -> ManifestStatus {
             self.status
         }
-        fn textures(&self, _refs: RangeInclusive<u64>) -> Result<Vec<FakeTex>, Error> {
-            self.pass1.borrow_mut().take().unwrap()
+        fn record_count(&self) -> Option<usize> {
+            self.record_count
+        }
+        fn textures(&self, refs: RangeInclusive<u64>) -> Result<Vec<FakeTex>, Error> {
+            self.requested.borrow_mut().push(refs.clone());
+            if self.fail_chunk_at == Some(*refs.start()) {
+                return Err(Error::Truncated);
+            }
+            match &self.pass1 {
+                Err(()) => Err(Error::Truncated),
+                Ok(all) => Ok(all
+                    .iter()
+                    .filter(|t| refs.contains(&t.stream_ref))
+                    .cloned()
+                    .collect()),
+            }
         }
         fn stencil_aspects(&self, _refs: &[u64]) -> Result<Vec<FakeTex>, Error> {
             self.stencil.borrow_mut().take().unwrap()
@@ -304,7 +418,7 @@ mod tests {
             Ok(vec![bgra(1, 4, 4), depth(2), depth(3)]),
         )
         .with_stencil(Ok(vec![stencil_aspect(2), depth(3)]));
-        let s = run(&f, 10);
+        let s = run(&f, &ten());
         assert!(s.sweep_error.is_none());
         let aspects: Vec<(u64, Aspect, bool)> = s
             .fetched
@@ -348,7 +462,7 @@ mod tests {
             ManifestStatus::Unparseable,
             Ok(vec![bgra(4, 4, 4), bgra(4, 4, 4), bgra(5, 4, 4), other]),
         );
-        let s = run(&f, 10);
+        let s = run(&f, &ten());
         let refs: Vec<u64> = s.fetched.iter().map(|x| x.texture.stream_ref).collect();
         assert_eq!(refs, vec![4]);
         assert_eq!(
@@ -387,7 +501,7 @@ mod tests {
         .attribute(2, desc(64, 64, 80))
         .attribute(4, desc(32, 32, 80))
         .unplaced(desc(16, 16, 80));
-        let s = run(&f, 10);
+        let s = run(&f, &ten());
         let grade_of = |r: u64| {
             s.fetched
                 .iter()
@@ -417,7 +531,7 @@ mod tests {
         let f = Fake::new(ManifestStatus::Ok(2), Ok(vec![bgra(1, 8, 8)]))
             .attribute(1, desc(8, 8, 80))
             .unplaced(desc(8, 8, 80));
-        let s = run(&f, 10);
+        let s = run(&f, &ten());
         assert_eq!(
             s.fetched[0].descriptor.unwrap().attribution,
             Attribution::Ambiguous
@@ -427,11 +541,11 @@ mod tests {
     #[test]
     fn pass1_error_is_run_level_and_keeps_the_manifest_status() {
         let f = Fake::new(ManifestStatus::Ok(3), Err(Error::Truncated));
-        let s = run(&f, 10);
+        let s = run(&f, &ten());
         assert!(s.fetched.is_empty());
         assert!(s.sweep_error.as_deref().unwrap().starts_with("pass 1"));
         assert_eq!(s.bundle_manifest, BundleManifest::Ok { textures_listed: 3 });
-        assert!(s.coverage.is_none());
+        assert!(s.coverage.is_none(), "no coverage when a chunk failed");
     }
 
     #[test]
@@ -441,9 +555,87 @@ mod tests {
             Ok(vec![bgra(1, 4, 4), depth(2)]),
         )
         .with_stencil(Err(Error::Truncated));
-        let s = run(&f, 10);
+        let s = run(&f, &ten());
         assert_eq!(s.fetched.len(), 2);
         assert!(s.sweep_error.as_deref().unwrap().starts_with("pass 2"));
         assert!(s.probes.is_empty());
+    }
+
+    #[test]
+    fn bound_prefers_the_flag_then_the_record_count_then_the_default() {
+        let f = Fake::new(ManifestStatus::Ok(1), Ok(vec![])).with_record_count(Some(1555));
+        assert_eq!(
+            bound(&f, Some(42)),
+            Bound {
+                max_stream_ref: 42,
+                source: BoundSource::Flag
+            }
+        );
+        assert_eq!(
+            bound(&f, None),
+            Bound {
+                max_stream_ref: 1555 + RECORD_COUNT_MARGIN,
+                source: BoundSource::BundleRecordCount
+            }
+        );
+        let f = Fake::new(ManifestStatus::Unparseable, Ok(vec![]));
+        assert_eq!(
+            bound(&f, None),
+            Bound {
+                max_stream_ref: DEFAULT_MAX_STREAM_REF,
+                source: BoundSource::Default
+            }
+        );
+    }
+
+    #[test]
+    fn pass1_is_fetched_in_chunks_covering_the_bound_exactly() {
+        assert_eq!(chunks(10), vec![0..=10]);
+        assert_eq!(chunks(CHUNK - 1), vec![0..=CHUNK - 1]);
+        assert_eq!(chunks(CHUNK), vec![0..=CHUNK - 1, CHUNK..=CHUNK]);
+        assert_eq!(chunks(4500), vec![0..=1999, 2000..=3999, 4000..=4500]);
+        let f = Fake::new(
+            ManifestStatus::NoDescriptors,
+            Ok(vec![bgra(1, 4, 4), bgra(2500, 4, 4), bgra(4200, 4, 4)]),
+        );
+        let b = Bound {
+            max_stream_ref: 4500,
+            source: BoundSource::Flag,
+        };
+        let s = run(&f, &b);
+        assert_eq!(
+            *f.requested.borrow(),
+            vec![0..=1999, 2000..=3999, 4000..=4500]
+        );
+        let refs: Vec<u64> = s.fetched.iter().map(|x| x.texture.stream_ref).collect();
+        assert_eq!(refs, vec![1, 2500, 4200]);
+        assert!(s.sweep_error.is_none());
+    }
+
+    #[test]
+    fn a_failed_chunk_is_recorded_and_the_other_chunks_still_count() {
+        let f = Fake::new(
+            ManifestStatus::Ok(3),
+            Ok(vec![bgra(1, 4, 4), bgra(2500, 4, 4), bgra(4200, 4, 4)]),
+        )
+        .failing_chunk_at(2000);
+        let b = Bound {
+            max_stream_ref: 4500,
+            source: BoundSource::Flag,
+        };
+        let s = run(&f, &b);
+        let refs: Vec<u64> = s.fetched.iter().map(|x| x.texture.stream_ref).collect();
+        assert_eq!(
+            refs,
+            vec![1, 4200],
+            "the failed chunk's ref is missing, the others are kept"
+        );
+        let err = s.sweep_error.as_deref().unwrap();
+        assert!(err.contains("1 of 3 chunks"), "{err}");
+        assert!(err.contains("refs 2000..=3999"), "{err}");
+        assert!(
+            s.coverage.is_none(),
+            "coverage is withheld when a chunk failed"
+        );
     }
 }

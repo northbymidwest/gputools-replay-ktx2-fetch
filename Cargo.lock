@@ -195,9 +195,9 @@ dependencies = [
 
 [[package]]
 name = "gputools-replay"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e37092a599bf0b6ea0ec01aa6d547962276386e6415d3bc35a1e87d0cdae553d"
+checksum = "3001a03667e1cf07daeb1ce3c6d752a70afc519fc3a1341f0db59f6f6cdf7820"
 dependencies = [
  "block2",
  "gputools-replay-sys",
@@ -209,9 +209,9 @@ dependencies = [
 
 [[package]]
 name = "gputools-replay-hl"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3fb235c2d0e54387f2687211a01853cd20bdbbea165a52279f90559fc1dd804"
+checksum = "4873cac18f0c0f89d67c5ca02d3dc16076256d1ea56536639826b0d09ed4dc78"
 dependencies = [
  "bytemuck",
  "gputools-replay",
@@ -235,18 +235,18 @@ dependencies = [
 
 [[package]]
 name = "gputools-replay-sys"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c811bdee591c487f711c33f30e4c82277c3c67d6d21a512b4568eda9e2d88c0"
+checksum = "c5bbe734c79bd1c82f36f63a60cbb75990abaead77d217f0523eb63a1df7b32f"
 dependencies = [
  "objc2",
 ]
 
 [[package]]
 name = "gputrace-bundle"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b378209f72b6159c54cfc2ce767f6d1d5e742a4d94fa7b79969135db899cecd"
+checksum = "b4542bf5a9fec7be81e6d42bf465a6f9ed907ba88cc25fa17c22a6659ab43bd4"
 dependencies = [
  "flate2",
  "thiserror",

@@ -27,9 +27,11 @@ struct Args {
     out: PathBuf,
     /// Highest streamRef to sweep. Refs are sparse and assigned at load
     /// time, so the tool asks for every value up to this and keeps what
-    /// answers.
-    #[arg(long, default_value_t = 2000)]
-    max_stream_ref: u64,
+    /// answers. Default: the bundle's index record count plus a margin,
+    /// which bounds the refs the replayer can assign; 20000 if the bundle
+    /// cannot be read.
+    #[arg(long)]
+    max_stream_ref: Option<u64>,
     /// Set MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=1 so textures no captured
     /// command reads still answer.
     #[arg(long)]
@@ -82,6 +84,9 @@ impl Fetcher for Live {
     fn manifest_status(&self) -> ManifestStatus {
         self.0.manifest_status()
     }
+    fn record_count(&self) -> Option<usize> {
+        self.0.record_count()
+    }
     fn textures(&self, refs: RangeInclusive<u64>) -> Result<Vec<Texture>, Error> {
         self.0.textures(refs)
     }
@@ -102,13 +107,15 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
     cap.set_timeout(Duration::from_secs(args.timeout));
     let live = Live(cap);
 
+    let bound = sweep::bound(&live, args.max_stream_ref);
     let mut man = Manifest::new(
         bundle.clone(),
-        args.max_stream_ref,
+        bound.max_stream_ref,
         args.force_load_unused,
         args.timeout,
     );
-    let sweep = sweep::run(&live, args.max_stream_ref);
+    man.max_stream_ref_source = bound.source;
+    let sweep = sweep::run(&live, &bound);
     man.bundle_manifest = sweep.bundle_manifest;
     man.coverage = sweep.coverage;
     man.duplicates = sweep.duplicates;
@@ -128,7 +135,7 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
     if man.textures.is_empty() {
         eprintln!(
             "gputools-replay-ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, that --max-stream-ref ({}) is at least as high as the streamRefs it uses, and consider --force-load-unused",
-            args.max_stream_ref
+            bound.max_stream_ref
         );
     }
     if let Some(c) = &man.coverage
