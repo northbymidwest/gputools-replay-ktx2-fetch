@@ -25,6 +25,13 @@ exclude = [
     "/RELEASING.md",
 ]
 
+# docs.rs builds on Linux; the engine links Apple's private framework and its
+# build script refuses any other target. Target the Apple platform, as the
+# gputools-replay crates do; under DOCS_RS their build scripts skip the link.
+[package.metadata.docs.rs]
+default-target = "aarch64-apple-darwin"
+targets = ["aarch64-apple-darwin"]
+
 [lib]
 name = "gputools_replay_ktx2_fetch"
 path = "src/lib.rs"

@@ -2,6 +2,14 @@
 
 Notable changes per release. Dates are the publish date.
 
+## Unreleased
+
+### Fixed
+
+- docs.rs builds: target `aarch64-apple-darwin`, as the engine crates do,
+  since docs.rs builds on Linux and the engine's build script refuses any
+  other target.
+
 ## 0.1.1 - 2026-09-04
 
 ### Changed
