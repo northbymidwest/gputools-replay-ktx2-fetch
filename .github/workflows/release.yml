@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: northbymidwest/gh-actions/release-preflight@6ca17f06b2ba856c90d9c3dff2edb1d5bcaebec8 # v0.1.0
+      - uses: northbymidwest/gh-actions/release-preflight@835146fc4d780edfac675e00fbdbaefd173c3e3a # v0.1.0
         with:
           version: ${{ inputs.version }}
           dry-run: ${{ inputs.dry_run }}
@@ -86,7 +86,7 @@ jobs:
       # The tag is pushed with a read-write deploy key, the one bypass actor
       # the `protect version tags` ruleset allows; its private half exists
       # only as the release environment's RELEASE_TAG_KEY secret.
-      - uses: northbymidwest/gh-actions/release-tag@6ca17f06b2ba856c90d9c3dff2edb1d5bcaebec8 # v0.1.0
+      - uses: northbymidwest/gh-actions/release-tag@835146fc4d780edfac675e00fbdbaefd173c3e3a # v0.1.0
         if: ${{ !inputs.dry_run }}
         with:
           version: ${{ inputs.version }}
