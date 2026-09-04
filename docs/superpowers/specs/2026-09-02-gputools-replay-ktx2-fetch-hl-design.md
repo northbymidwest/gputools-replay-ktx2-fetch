@@ -91,8 +91,13 @@ library (`gputools_replay_ktx2_fetch`) so the modules are unit-testable.
 `gputools-replay-hl` is the only external tie, as a published crate:
 
 ```toml
-gputools-replay-hl = "0.1.0"
+gputools-replay-hl = { version = "=0.1.1", default-features = false }
 ```
+
+The version is pinned exactly: the engine is pre-1.0 and its measured
+behaviour is what the oracle suite checks, so a new engine version is a
+deliberate change that runs through CI and the oracle suite, not whatever
+an unlocked `cargo install` resolves.
 
 (0.2 was built against a path dependency on the sibling checkout until
 0.1.0 was published on 2026-09-03; the switch changed nothing but the

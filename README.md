@@ -28,9 +28,9 @@ written as raw blocks. Design:
 
 ## Usage
 
-Install from crates.io (`--locked` builds against the exact engine version
-the release was tested with, which the manifest's `engine` field then
-records accurately):
+Install from crates.io (the engine version is pinned exactly in the
+manifest, so an unlocked install still gets the tested engine; `--locked`
+additionally freezes every other dependency at the released versions):
 
 ```
 cargo install --locked gputools-replay-ktx2-fetch

@@ -2,6 +2,13 @@
 
 Notable changes per release. Dates are the publish date.
 
+## Unreleased
+
+### Changed
+
+- The engine dependency is pinned exactly (`gputools-replay-hl = "=0.1.1"`),
+  so an unlocked `cargo install` still builds against the tested engine.
+
 ## 0.1.2 - 2026-09-04
 
 ### Fixed
