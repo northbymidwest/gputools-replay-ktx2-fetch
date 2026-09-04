@@ -28,12 +28,10 @@ written as raw blocks. Design:
 
 ## Usage
 
-Install from crates.io (the engine version is pinned exactly in the
-manifest, so an unlocked install still gets the tested engine; `--locked`
-additionally freezes every other dependency at the released versions):
+Install from crates.io:
 
 ```
-cargo install --locked gputools-replay-ktx2-fetch
+cargo install gputools-replay-ktx2-fetch
 ```
 
 ```
