@@ -67,6 +67,11 @@ jobs:
             soft "Cargo.toml is still publish=false; remove it to release"
           fi
 
+          # The tag must not already exist: protected tags cannot be moved.
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            soft "tag v$VERSION already exists, and protected tags cannot be moved"
+          fi
+
           # A changelog section for this version must exist and be non-empty.
           awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f=1; next} /^## / {f=0} f' \
             CHANGELOG.md > /tmp/notes.md
@@ -111,20 +116,31 @@ jobs:
         # crate carries no feature selection): it drops the macos27 floor so the
         # verify links the framework on this macOS 26 runner, exactly as CI does.
         run: cargo publish --no-default-features
+      # The tag is pushed with a read-write deploy key, the one bypass actor
+      # the `protect version tags` ruleset allows; its private half exists
+      # only as the release environment's RELEASE_TAG_KEY secret. Host keys
+      # come from the GitHub meta API and are pinned for this one push.
       - name: Tag and release
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          RELEASE_TAG_KEY: ${{ secrets.RELEASE_TAG_KEY }}
         run: |
           set -eu
           sha=$(git rev-parse HEAD)
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf '%s\n' "$RELEASE_TAG_KEY" > "$dir/key"
+          chmod 600 "$dir/key"
+          gh api meta --jq '.ssh_keys[] | "github.com \(.)"' > "$dir/known_hosts"
+          GIT_SSH_COMMAND="ssh -F /dev/null -i $dir/key -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile=$dir/known_hosts -o StrictHostKeyChecking=yes" \
+            git push "git@github.com:${{ github.repository }}.git" "$sha:refs/tags/v$VERSION"
           awk -v v="$VERSION" 'index($0, "## " v " ") == 1 {f=1; next} /^## / {f=0} f' \
             CHANGELOG.md > /tmp/notes.md
-          git tag "v$VERSION" "$sha"
-          git push origin "v$VERSION"
           gh release create "v$VERSION" --title "v$VERSION" \
             --notes-file /tmp/notes.md --prerelease --verify-tag
+          echo "::notice::published $VERSION and tagged v$VERSION at $sha"
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
         env:

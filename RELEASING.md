@@ -15,6 +15,11 @@ The crate releases through `.github/workflows/release.yml`. Every release is a
   `release.yml`, environment `release`.
 - **A `release` environment** in repo settings with a required reviewer, and
   restricted to `main`.
+- **A read-write deploy key for tagging.** The `protect version tags` ruleset
+  admits no one but a deploy key, so the workflow pushes the `v<version>` tag
+  with one: its public half is registered as a deploy key with write access,
+  its private half is the `release` environment secret `RELEASE_TAG_KEY`, and
+  no copy exists anywhere else.
 
 ## By hand, before dispatching
 
