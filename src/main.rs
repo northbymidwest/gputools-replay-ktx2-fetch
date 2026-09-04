@@ -105,11 +105,52 @@ impl Fetcher for Live {
     }
 }
 
+/// Whether an open error means the path is not a capture bundle at all (a
+/// usage error, exit 2) rather than a capture the replayer refused to load
+/// (a run that produced nothing, recorded in a manifest, exit 1). hl does
+/// not re-export the substrate's `SessionError`, so this keys on the two
+/// bundle-shape messages it emits before touching the framework.
+fn is_not_a_bundle(e: &Error) -> bool {
+    let msg = e.to_string();
+    msg.starts_with("no capture bundle at") || msg.starts_with("capture bundle is malformed")
+}
+
+/// The replayer refused to load the capture: write a manifest that says so,
+/// explain the likely cause when force-load was on, and exit 1.
+fn report_load_failure(args: &Args, bundle: &str, e: &Error) -> u8 {
+    let mut man = Manifest::new(
+        bundle.to_string(),
+        args.max_stream_ref.unwrap_or(0),
+        args.force_load_unused,
+        args.timeout,
+    );
+    man.fetch_at = args.fetch_at;
+    man.open_error = Some(e.to_string());
+    eprintln!("gputools-replay-ktx2-fetch: the replayer could not load {bundle}: {e}");
+    if args.force_load_unused {
+        eprintln!(
+            "gputools-replay-ktx2-fetch: --force-load-unused (MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=1) makes the replayer create every captured resource at load, including ones no captured command uses; one that cannot be rebuilt (a pipeline, for example) fails the whole load. Rerun without --force-load-unused to export what the frame uses."
+        );
+    }
+    let path = args.out.join("manifest.json");
+    if let Err(w) = man.write(&path) {
+        eprintln!(
+            "gputools-replay-ktx2-fetch: failed to write {}: {w}",
+            path.display()
+        );
+    }
+    man.exit_code()
+}
+
 fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&args.out)
         .map_err(|e| format!("creating {}: {e}", args.out.display()))?;
     let bundle = args.bundle.display().to_string();
-    let mut cap = Capture::open(&args.bundle)?;
+    let mut cap = match Capture::open(&args.bundle) {
+        Ok(cap) => cap,
+        Err(e) if is_not_a_bundle(&e) => return Err(e.into()),
+        Err(e) => return Ok(report_load_failure(&args, &bundle, &e)),
+    };
     cap.set_timeout(Duration::from_secs(args.timeout));
     // Position playback before any fetch. A session opens at command 0,
     // where a render target or drawable still holds its pre-frame contents

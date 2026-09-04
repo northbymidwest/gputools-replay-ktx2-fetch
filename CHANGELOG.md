@@ -4,6 +4,14 @@ Notable changes per release. Dates are the publish date.
 
 ## Unreleased
 
+### Fixed
+
+- A capture the replayer refuses to load (for example a wgpu capture whose
+  unused compute pipeline cannot be rebuilt under `--force-load-unused`)
+  now writes a manifest carrying `open_error` and exits 1, and the message
+  names `--force-load-unused` as the likely cause when it was on. Previously
+  the run exited 2 with nothing written.
+
 ### Changed
 
 - Textures are fetched after replaying the captured command stream, so each

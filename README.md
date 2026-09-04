@@ -47,8 +47,8 @@ Writes `<dir>/ref<N>_<W>x<H>_<Format>.ktx2` for every texture that answers
 (level 0, slice 0; a combined depth-stencil texture becomes a depth file and
 a `_stencil` sibling) and `<dir>/manifest.json` with the coverage, every
 failure, and the settings the run used. Exit 0 when nothing failed, 1 when
-any texture or the sweep failed (the manifest says which), 2 when the run
-could not start.
+any texture, the sweep, or the load failed (the manifest says which), 2
+when the run could not start.
 
 Flags:
 

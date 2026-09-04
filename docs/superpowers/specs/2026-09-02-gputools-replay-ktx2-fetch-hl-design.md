@@ -483,9 +483,11 @@ combined depth-stencil descriptors; `listed_not_answered` counts only
 descriptors the join could have placed, so the two need not sum with
 `attributed`.
 
-**Exit code:** 0 if `failures` is empty and `sweep_error` is null; 1
-otherwise; 2 for a failure before the sweep began (bad arguments, bundle
-cannot be opened), in which case no manifest is written. An empty
+**Exit code:** 0 if `failures` is empty and `sweep_error` and `open_error`
+are null; 1 otherwise, including a load refused by the replayer (the
+manifest then carries `open_error` and nothing else was written); 2 for a
+failure before anything could run (bad arguments, not a capture bundle,
+`--out` not creatable), in which case no manifest is written. An empty
 `textures` list warns on stderr (wrong bundle, or `--max-stream-ref` too
 low) but is not a failure. `listed_not_answered > 0` is reported, not a
 failure: it is the measured coverage gap, and the usual fix is
@@ -495,7 +497,8 @@ failure: it is the measured coverage gap, and the usual fix is
 
 | tier | examples | where it lands | exit |
 | --- | --- | --- | --- |
-| before the sweep | bad bundle, unlock var unset, session already open, `--out` not creatable | stderr | 2 |
+| before the sweep | not a capture bundle (missing, or without `index`/`metadata`), `--out` not creatable, bad arguments | stderr | 2 |
+| load refused | the replayer refuses to load the capture (`Capture::open` fails past the bundle-shape check: unlock var, bootstrap, or a resource it cannot create, e.g. a compute pipeline under force-load) | `open_error` in a manifest with the run's settings; stderr names `--force-load-unused` as the likely cause when it was on | 1 |
 | run-level | `Error::Session` / `Error::Fetch` from either pass | `sweep_error` | 1 |
 | per-texture | unmapped format, certain-attributed volume with depth > 1, conflicting duplicate, `Truncated`, `FormatMismatch`, payload length mismatch, file write error | `failures[]` | 1 |
 | informational | manifest unparseable, unattributed textures, unanswered descriptors, identical duplicates | `bundle_manifest`, `coverage`, `duplicates` | 0 |

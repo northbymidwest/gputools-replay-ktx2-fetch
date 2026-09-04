@@ -155,6 +155,11 @@ pub struct Manifest {
     pub stencil_probes: Vec<StencilProbe>,
     pub failures: Vec<Failure>,
     pub sweep_error: Option<String>,
+    /// The replayer refused to load the capture, so no sweep ran. Present
+    /// only on that path; everything above it still records the run's
+    /// settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_error: Option<String>,
 }
 
 impl Manifest {
@@ -190,6 +195,7 @@ impl Manifest {
             stencil_probes: Vec::new(),
             failures: Vec::new(),
             sweep_error: None,
+            open_error: None,
         }
     }
 
@@ -202,10 +208,11 @@ impl Manifest {
         )
     }
 
-    /// 0 when nothing failed; 1 when any per-texture failure or a sweep
-    /// error was recorded. (2, a failure before the sweep, is the binary's.)
+    /// 0 when nothing failed; 1 when any per-texture failure, a sweep
+    /// error, or a load failure was recorded. (2, bad arguments or an
+    /// uncreatable output directory, is the binary's.)
     pub fn exit_code(&self) -> u8 {
-        if self.failures.is_empty() && self.sweep_error.is_none() {
+        if self.failures.is_empty() && self.sweep_error.is_none() && self.open_error.is_none() {
             0
         } else {
             1
@@ -244,6 +251,19 @@ mod tests {
         let mut m = Manifest::new("b".into(), 10, false, 60);
         m.sweep_error = Some("fetch timed out".into());
         assert_eq!(m.exit_code(), 1);
+        let mut m = Manifest::new("b".into(), 10, false, 60);
+        m.open_error = Some("the replayer reported an error".into());
+        assert_eq!(m.exit_code(), 1);
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+        assert_eq!(v["open_error"], "the replayer reported an error");
+        let m = Manifest::new("b".into(), 10, false, 60);
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+        assert!(
+            v.get("open_error").is_none(),
+            "open_error is omitted when the capture loaded"
+        );
     }
 
     #[test]
