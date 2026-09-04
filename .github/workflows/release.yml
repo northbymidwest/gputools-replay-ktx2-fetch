@@ -1,21 +1,21 @@
 name: release
 run-name: release ${{ inputs.version }}${{ inputs.dry_run && ' (dry run)' || '' }}
 
-# Publishes gputools-replay-ktx2-fetch, then tags, through the shared composites
-# in northbymidwest/gh-actions (see that repo's README for the design). The tag
-# is an output of a succeeded release, never its trigger.
+# Publishes the crate, then tags, through the shared composites in
+# northbymidwest/gh-actions (see that repo's README for the design). The tag
+# is an output of a succeeded release, never its trigger: a protected v* tag
+# is permanent the moment it lands, so a tag-triggered release would burn a
+# version on any downstream failure.
 #
-# It depends on gputools-replay-hl, released from its own repo FIRST: preflight
-# checks that version is already on crates.io (registry-prereqs). hl is a plain
-# registry dependency, so no sibling checkout is needed. Publishing runs on
-# macOS because cargo publish's verify build links the private framework through
-# hl, with --no-default-features so that build's floor is one the hosted macOS
-# 26 image can link.
+# Publishing runs on macOS because cargo publish's verify build links the
+# private framework through gputools-replay-hl, with --no-default-features so
+# that build's floor is one the hosted macOS 26 image can link; the published
+# crate carries no feature selection.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, without the leading v (e.g. 0.1.0)'
+        description: 'Version to release, without the leading v (e.g. 0.1.1)'
         type: string
         required: true
       dry_run:
@@ -33,6 +33,8 @@ concurrency:
 
 jobs:
   preflight:
+    # Validation only: reads the manifest, the changelog, and crates.io. No
+    # cargo build.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -40,20 +42,20 @@ jobs:
       actions: read
     outputs:
       publish: ${{ steps.pre.outputs.publish }}
+      registry: ${{ steps.pre.outputs.registry }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - id: pre
-        uses: northbymidwest/gh-actions/release-preflight@19c984de66ed8a32ca544a06e16eb66d58f2a79d # v0.2.0
+        uses: northbymidwest/gh-actions/release-preflight@496015a8343b15f2cfb1c04ce6955a4c5602d556 # v0.2.1
         with:
           version: ${{ inputs.version }}
           dry-run: ${{ inputs.dry_run }}
           crates: Cargo.toml
           packages: gputools-replay-ktx2-fetch
-          registry-prereqs: gputools-replay-hl=Cargo.toml
           token: ${{ github.token }}
-      - uses: northbymidwest/gh-actions/release-review-summary@19c984de66ed8a32ca544a06e16eb66d58f2a79d # v0.2.0
+      - uses: northbymidwest/gh-actions/release-review-summary@496015a8343b15f2cfb1c04ce6955a4c5602d556 # v0.2.1
         with:
           version: ${{ inputs.version }}
           dry-run: ${{ inputs.dry_run }}
@@ -64,10 +66,14 @@ jobs:
 
   publish:
     needs: preflight
+    # The crates.io trusted-publishing token is scoped to this environment; its
+    # required-reviewer gate is the one human approval before an irreversible
+    # upload. Restrict the environment to main in repo settings.
     environment: release
-    # macOS: cargo publish's verify build links the private framework through
-    # gputools-replay-hl. --no-default-features keeps that build's floor at what
-    # the hosted macOS 26 image can link.
+    # macOS: cargo publish's verify build links the private framework. Pin to a
+    # macOS 27 label once GitHub provides one (macos-latest upgrades on its own
+    # when the image reaches 27); until then --no-default-features keeps the
+    # verify build's floor at what the hosted macOS 26 image can link.
     runs-on: macos-latest
     timeout-minutes: 60
     permissions:
@@ -80,13 +86,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: stable
-      - uses: northbymidwest/gh-actions/release-publish@19c984de66ed8a32ca544a06e16eb66d58f2a79d # v0.2.0
+      - uses: northbymidwest/gh-actions/release-publish-crate@496015a8343b15f2cfb1c04ce6955a4c5602d556 # v0.2.1
         with:
           packages: gputools-replay-ktx2-fetch
           publish: ${{ needs.preflight.outputs.publish }}
           args: --no-default-features
           dry-run: ${{ inputs.dry_run }}
-      - uses: northbymidwest/gh-actions/release-tag@19c984de66ed8a32ca544a06e16eb66d58f2a79d # v0.2.0
+      # The tag is pushed with a read-write deploy key, the one bypass actor
+      # the `protect version tags` ruleset allows; its private half exists
+      # only as the release environment's RELEASE_TAG_KEY secret.
+      - uses: northbymidwest/gh-actions/release-tag@496015a8343b15f2cfb1c04ce6955a4c5602d556 # v0.2.1
         with:
           version: ${{ inputs.version }}
           deploy-key: ${{ secrets.RELEASE_TAG_KEY }}
