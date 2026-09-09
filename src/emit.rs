@@ -376,7 +376,7 @@ mod tests {
             force_load_unused: false,
             command_index: 369,
         };
-        let mut man = Manifest::new("cap.gputrace".into(), 10, false, 60);
+        let mut man = Manifest::new("cap.gputrace".into(), false, 60);
         emit_one(&ctx, f, &mut man);
         (man, out)
     }

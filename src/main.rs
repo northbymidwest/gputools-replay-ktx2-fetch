@@ -25,12 +25,6 @@ struct Args {
     /// Directory to write .ktx2 files and manifest.json into.
     #[arg(long)]
     out: PathBuf,
-    /// Highest streamRef to look up. Refs are sparse and assigned at load
-    /// time, so the tool asks the replayer's object map about every value
-    /// up to this and fetches the textures it names. A lookup costs about a
-    /// quarter of a microsecond. Default: 1000000.
-    #[arg(long)]
-    max_stream_ref: Option<u64>,
     /// Set MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=1 so textures no captured
     /// command reads still answer.
     #[arg(long)]
@@ -89,11 +83,11 @@ struct Live {
 
 impl Fetcher for Live {
     type Tex = Texture;
-    fn texture_descriptor(
-        &self,
-        stream_ref: u64,
-    ) -> Result<Option<TextureDescriptor>, ObjectMapError> {
-        self.cap.texture_descriptor(stream_ref)
+    fn loaded_textures(&self) -> Result<Vec<(u64, TextureDescriptor)>, ObjectMapError> {
+        self.cap.loaded_textures().map(<[_]>::to_vec)
+    }
+    fn unused_resource_refs(&self) -> Result<Vec<u64>, ObjectMapError> {
+        self.cap.unused_resource_refs()
     }
     /// A session opens at command 0, where a render target or drawable
     /// still holds its pre-frame contents (MEASURED: a drawable fetched at
@@ -137,12 +131,7 @@ fn is_not_a_bundle(e: &Error) -> bool {
 /// The replayer refused to load the capture: write a manifest that says so,
 /// explain the likely cause when force-load was on, and exit 1.
 fn report_load_failure(args: &Args, bundle: &str, e: &Error) -> u8 {
-    let mut man = Manifest::new(
-        bundle.to_string(),
-        sweep::bound(args.max_stream_ref).max_stream_ref,
-        args.force_load_unused,
-        args.timeout,
-    );
+    let mut man = Manifest::new(bundle.to_string(), args.force_load_unused, args.timeout);
     man.fetch_at = args.fetch_at;
     man.open_error = Some(e.to_string());
     eprintln!("gputools-replay-ktx2-fetch: the replayer could not load {bundle}: {e}");
@@ -176,16 +165,9 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         fetch_at: args.fetch_at,
     };
 
-    let bound = sweep::bound(args.max_stream_ref);
-    let mut man = Manifest::new(
-        bundle.clone(),
-        bound.max_stream_ref,
-        args.force_load_unused,
-        args.timeout,
-    );
-    man.max_stream_ref_source = bound.source;
+    let mut man = Manifest::new(bundle.clone(), args.force_load_unused, args.timeout);
     man.fetch_at = args.fetch_at;
-    let sweep = sweep::run(&live, &bound);
+    let sweep = sweep::run(&live, args.force_load_unused);
     let command_index = sweep.command_index;
     man.replayed_to_command_index = command_index;
     man.coverage = sweep.coverage;
@@ -206,18 +188,7 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
 
     if man.textures.is_empty() {
         eprintln!(
-            "gputools-replay-ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, that --max-stream-ref ({}) is at least as high as the streamRefs it uses, and consider --force-load-unused",
-            bound.max_stream_ref
-        );
-    }
-    if let Some(c) = &man.coverage
-        && let Some(highest) = c.highest_stream_ref
-        && highest.saturating_add(sweep::BOUND_HEADROOM) >= bound.max_stream_ref
-    {
-        eprintln!(
-            "gputools-replay-ktx2-fetch: warning: the highest loaded streamRef ({highest}) is within {} of --max-stream-ref ({}); textures past the bound are not looked up",
-            sweep::BOUND_HEADROOM,
-            bound.max_stream_ref
+            "gputools-replay-ktx2-fetch: warning: no textures were written; check that {bundle} is the capture you meant, and consider --force-load-unused if its textures are never read by a captured command"
         );
     }
 

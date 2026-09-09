@@ -4,16 +4,18 @@ use crate::tex::Aspect;
 use serde::Serialize;
 use std::path::Path;
 
-/// What the replayer's object map held up to the bound, against what the
-/// fetch returned.
+/// What the replayer loaded, against what the fetch returned.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Coverage {
-    /// Textures the replayer loaded with a streamRef up to the bound.
+    /// Textures the replayer loaded (its object map at open).
     pub loaded: usize,
     /// Distinct pass-1 streamRefs after dedupe.
     pub answered: usize,
-    /// The highest loaded streamRef; `None` when nothing was loaded.
-    pub highest_stream_ref: Option<u64>,
+    /// Resources of any kind the replayer force-loaded that no captured
+    /// command uses. The replayer tracks these only under
+    /// `--force-load-unused` (MEASURED: 0 reported without it, 4 with, on a
+    /// fixture with four unused textures), so this is `null` otherwise.
+    pub unused_resources: Option<usize>,
 }
 
 /// Where in the captured command stream the fetch happens (spec 3).
@@ -55,16 +57,6 @@ impl Serialize for FetchAt {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(self)
     }
-}
-
-/// Where the sweep's upper bound came from (spec 3).
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum BoundSource {
-    /// `--max-stream-ref` was given.
-    Flag,
-    /// The built-in ceiling.
-    Default,
 }
 
 /// The resource as the replayer created it, read off its live `MTLTexture`
@@ -127,8 +119,6 @@ pub struct Manifest {
     pub bundle: String,
     pub tool_version: String,
     pub engine: String,
-    pub max_stream_ref: u64,
-    pub max_stream_ref_source: BoundSource,
     /// Where the fetch was asked to happen (`--fetch-at`).
     pub fetch_at: FetchAt,
     /// The command index playback actually reached before any fetch.
@@ -136,7 +126,8 @@ pub struct Manifest {
     pub force_load_unused: bool,
     pub timeout_secs: u64,
     pub assumptions: Vec<String>,
-    /// Omitted when the object map could not be read (see `sweep_error`).
+    /// Omitted when the replayer's object map could not be read (see
+    /// `sweep_error`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Coverage>,
     pub textures: Vec<TextureEntry>,
@@ -152,18 +143,11 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    pub fn new(
-        bundle: String,
-        max_stream_ref: u64,
-        force_load_unused: bool,
-        timeout_secs: u64,
-    ) -> Self {
+    pub fn new(bundle: String, force_load_unused: bool, timeout_secs: u64) -> Self {
         Self {
             bundle,
             tool_version: crate::TOOL_VERSION.to_string(),
             engine: crate::engine().to_string(),
-            max_stream_ref,
-            max_stream_ref_source: BoundSource::Flag,
             fetch_at: FetchAt::End,
             replayed_to_command_index: 0,
             force_load_unused,
@@ -173,8 +157,8 @@ impl Manifest {
                 format!("MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE={}; textures no captured command reads answer only when it is 1", u8::from(force_load_unused)),
                 format!("MTLREPLAYER_IGNORE_UNUSED_RESOURCE={}; when not force-loading, a texture the replayer cannot create because no captured command uses it is skipped instead of failing the whole fetch", u8::from(!force_load_unused)),
                 "textures are fetched at the playback position fetch_at (default: the end of the captured command stream, what the frame produced; `start` is the capture's stored snapshot); replayed_to_command_index is the index playback reached".to_string(),
-                "every streamRef 0..=max_stream_ref is looked up in the replayer's object map, which holds the resources the load created (an unused texture is absent without force-load); only the refs it names as textures are fetched".to_string(),
-                "each descriptor is read off the live MTLTexture the replayer created for that streamRef; nothing is joined by position".to_string(),
+                "the textures fetched are exactly the ones the replayer's object map held when the capture opened (the resources the load created; an unused texture is absent without force-load)".to_string(),
+                "each descriptor is read off the MTLTexture the replayer created for that streamRef; nothing is joined by position".to_string(),
                 "alpha is assumed straight (Metal does not record premultiplication)".to_string(),
             ],
             coverage: None,
@@ -219,7 +203,7 @@ mod tests {
 
     #[test]
     fn exit_code_reflects_failures_and_sweep_errors_only() {
-        let mut m = Manifest::new("b".into(), 10, false, 60);
+        let mut m = Manifest::new("b".into(), false, 60);
         assert_eq!(m.exit_code(), 0);
         m.duplicates.push(Duplicate {
             stream_ref: 1,
@@ -236,16 +220,16 @@ mod tests {
             reason: "x".into(),
         });
         assert_eq!(m.exit_code(), 1);
-        let mut m = Manifest::new("b".into(), 10, false, 60);
+        let mut m = Manifest::new("b".into(), false, 60);
         m.sweep_error = Some("fetch timed out".into());
         assert_eq!(m.exit_code(), 1);
-        let mut m = Manifest::new("b".into(), 10, false, 60);
+        let mut m = Manifest::new("b".into(), false, 60);
         m.open_error = Some("the replayer reported an error".into());
         assert_eq!(m.exit_code(), 1);
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(v["open_error"], "the replayer reported an error");
-        let m = Manifest::new("b".into(), 10, false, 60);
+        let m = Manifest::new("b".into(), false, 60);
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert!(
@@ -256,18 +240,21 @@ mod tests {
 
     #[test]
     fn serialises_the_spec_shape() {
-        let mut m = Manifest::new("cap.gputrace".into(), 2000, true, 600);
+        let mut m = Manifest::new("cap.gputrace".into(), true, 600);
         m.coverage = Some(Coverage {
             loaded: 7,
             answered: 7,
-            highest_stream_ref: Some(9),
+            unused_resources: Some(0),
         });
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(v["coverage"]["loaded"], 7);
         assert_eq!(v["coverage"]["answered"], 7);
-        assert_eq!(v["coverage"]["highest_stream_ref"], 9);
-        assert_eq!(v["max_stream_ref_source"], "flag");
+        assert_eq!(v["coverage"]["unused_resources"], 0);
+        assert!(
+            v.get("max_stream_ref").is_none(),
+            "no sweep bound since hl 0.3.0"
+        );
         assert_eq!(v["force_load_unused"], true);
         assert!(
             v["engine"]
@@ -275,7 +262,7 @@ mod tests {
                 .unwrap()
                 .starts_with("gputools-replay-hl")
         );
-        let m = Manifest::new("cap".into(), 1, false, 1);
+        let m = Manifest::new("cap".into(), false, 1);
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert!(
@@ -297,10 +284,7 @@ mod tests {
 
     #[test]
     fn enums_serialise_lowercase() {
-        assert_eq!(
-            serde_json::to_string(&BoundSource::Default).unwrap(),
-            "\"default\""
-        );
+        assert_eq!(serde_json::to_string(&FetchAt::Start).unwrap(), "\"start\"");
         assert_eq!(
             serde_json::to_string(&ProbeOutcome::Written).unwrap(),
             "\"written\""

@@ -8,7 +8,7 @@ fn ycbcr_planes_are_two_ordinary_files() {
     let Some(cap) = capture("known-ycbcr") else {
         return;
     };
-    let r = run_cli(&cap, "ycbcr", &["--max-stream-ref", "200"]);
+    let r = run_cli(&cap, "ycbcr", &[]);
     assert_eq!(r.status, 0, "{}", r.stderr);
     validate_all(&r.out);
     let es = entries(&r);

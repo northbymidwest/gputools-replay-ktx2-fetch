@@ -163,9 +163,9 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "gputools-replay"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0d87fe7eb05a6ac58a2a356d90dec43d55e149c84adeeb610da42e9e4e7c84c"
+checksum = "0e12ce098c30079394dbb6a32714b89b385931ff10009efee7e3c25dd0e1cd8b"
 dependencies = [
  "block2",
  "gputools-replay-sys",
@@ -178,9 +178,9 @@ dependencies = [
 
 [[package]]
 name = "gputools-replay-hl"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "849476b8eb5c9a33205dca779070ec5c9aebc5670772e492931824cad398b701"
+checksum = "df6f2a3626a67348c0ae5168b1e766c3aaea8ae96a82c908b478647b48abf7fb"
 dependencies = [
  "bytemuck",
  "gputools-replay",
@@ -191,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "gputools-replay-ktx2-fetch"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "gputools-replay-hl",
@@ -203,9 +203,9 @@ dependencies = [
 
 [[package]]
 name = "gputools-replay-sys"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16705d7eea3baa0b32ce6edc410b6943769d28a1af709678eb33ad7b4fbe6c02"
+checksum = "a3244c99b23b4973e960bcafda0fb3b90ae2d68b4ee19af3622ce5e1ff2e8649"
 dependencies = [
  "block2",
  "libc",

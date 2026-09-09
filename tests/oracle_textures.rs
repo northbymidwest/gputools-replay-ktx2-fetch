@@ -15,13 +15,7 @@ fn known_textures_late_writes_seven_described_bgra_files() {
     let r = run_cli(
         &cap,
         "textures",
-        &[
-            "--fetch-at",
-            "start",
-            "--force-load-unused",
-            "--max-stream-ref",
-            "200",
-        ],
+        &["--fetch-at", "start", "--force-load-unused"],
     );
     assert_eq!(r.status, 0, "{}", r.stderr);
     let files = validate_all(&r.out);
@@ -30,7 +24,9 @@ fn known_textures_late_writes_seven_described_bgra_files() {
     let m = &r.manifest;
     assert_eq!(m["coverage"]["loaded"], 7);
     assert_eq!(m["coverage"]["answered"], 7);
-    assert_eq!(m["max_stream_ref_source"], "flag");
+    // The four textures no captured command uses, force-loaded (MEASURED
+    // 2026-09-09 on hl 0.3.0).
+    assert_eq!(m["coverage"]["unused_resources"], 4);
     assert!(m["failures"].as_array().unwrap().is_empty());
     let es = entries(&r);
     assert!(

@@ -16,13 +16,7 @@ fn same_geometry_textures_get_their_own_mip_count() {
     let r = run_cli(
         &cap,
         "ambiguous",
-        &[
-            "--fetch-at",
-            "start",
-            "--force-load-unused",
-            "--max-stream-ref",
-            "200",
-        ],
+        &["--fetch-at", "start", "--force-load-unused"],
     );
     assert_eq!(r.status, 0, "{}", r.stderr);
     validate_all(&r.out);

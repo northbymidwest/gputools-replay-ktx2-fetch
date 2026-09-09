@@ -52,23 +52,17 @@ The 0.2 rewrite exists for two reasons:
 ## 3. Naming and CLI
 
 ```
-gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [--force-load-unused] [--timeout SECS]
+gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--force-load-unused] [--timeout SECS] [--fetch-at end|start|N]
 ```
 
-- `--max-stream-ref`: highest streamRef looked up. streamRef values are
-  assigned by the replayer's load path and are not stored in the bundle
-  (MEASURED, dossier 00), and hl 0.2.0 exposes no enumeration of the
-  replayer's object map, so the tool asks the map about every ref up to
-  this bound and fetches the textures it names. A lookup is an in-process
-  dictionary probe costing about a quarter of a microsecond (MEASURED, hl
-  0.2.0: 1,000,001 lookups in 0.16 to 0.26 s on every fixture), so the
-  default is 1,000,000 and needs no tuning; the manifest records the bound
-  and whether it came from the flag. A nonexistent ref never costs a
-  fetch. The tool warns when the highest loaded ref is within 64 of the
-  bound. (0.1.x fetched every ref instead, at about 17 microseconds per
-  nonexistent ref, and bounded the sweep by the bundle's index record
-  count; that reader is behind hl's off-by-default `offline-manifest`
-  feature now and the tool does not enable it.)
+- There is no sweep bound. hl 0.3.0 enumerates the replayer's object map
+  (`Capture::loaded_textures()`, snapshotted at `Capture::open`), so the
+  tool fetches exactly the textures the replayer loaded and nothing has
+  to be guessed. (0.1.x fetched every ref up to a bound taken from the
+  bundle's index record count, at about 17 microseconds per nonexistent
+  ref; 0.2.0 looked every ref up to 1,000,000 up in the map at about a
+  quarter of a microsecond each; both had a `--max-stream-ref` flag, which
+  is gone.)
 - `--force-load-unused`: sets `MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=1`
   via `ReplayerConfig`. Needed for captures whose textures are never read
   by a captured command (MEASURED on `known-textures-late`: 3 of 7 answer
@@ -101,7 +95,7 @@ gputools-replay-ktx2-fetch <bundle>.gputrace --out <dir> [--max-stream-ref N] [-
   on hl 0.2.0; the tool retries the failed batch one ref at a time and
   records each refusal as a per-texture failure).
 
-The crate is `gputools-replay-ktx2-fetch` (0.2.0 on hl 0.2.0; 0.1.x on hl 0.1.x), edition 2024. ("0.2" in this document names the rewrite's generation relative to tool-2, not the crate version: the tool-2 crate was a throwaway and this crate starts at 0.1.0.) One binary, one
+The crate is `gputools-replay-ktx2-fetch` (0.3.0 on hl 0.3.0; 0.2.0 on hl 0.2.0; 0.1.x on hl 0.1.x), edition 2024. ("0.2" in this document names the rewrite's generation relative to tool-2, not the crate version: the tool-2 crate was a throwaway and this crate starts at 0.1.0.) One binary, one
 library (`gputools_replay_ktx2_fetch`) so the modules are unit-testable.
 
 ## 4. Architecture
@@ -111,7 +105,7 @@ library (`gputools_replay_ktx2_fetch`) so the modules are unit-testable.
 `gputools-replay-hl` is the only external tie, as a published crate:
 
 ```toml
-gputools-replay-hl = { version = "=0.2.0", default-features = false }
+gputools-replay-hl = { version = "=0.3.0", default-features = false }
 ```
 
 The version is pinned exactly: the engine is pre-1.0 and its measured
@@ -125,7 +119,8 @@ dependency line and the manifest's `engine` source.) The tool uses only hl's pub
 `Aspect`, `ReplayerConfig`, `Error`, `ObjectMapError`, `MTLPixelFormat`,
 `MTLTextureType`, `TextureDescriptor`, and the `format` module. Since hl
 0.2.0 `TextureDescriptor` is the session descriptor read off the
-replayer's live `MTLTexture` (section 13); the offline bundle reader is
+replayer's live `MTLTexture`, and since 0.3.0 `loaded_textures()` and
+`unused_resource_refs()` enumerate them (section 13); the offline bundle reader is
 behind hl's `offline-manifest` feature, which the tool does not enable, so
 the tool never names `gputrace-bundle` or `gputools-replay` directly.
 
@@ -145,7 +140,7 @@ Each module has one job and is testable without the others.
 | module | job | depends on |
 | --- | --- | --- |
 | `main.rs` | env setup, arg parsing, orchestration, exit code | everything below |
-| `sweep.rs` | the object-map walk, playback, the two-pass fetch, and dedupe; returns `Sweep` | hl |
+| `sweep.rs` | the loaded-texture snapshot, playback, the two-pass fetch, and dedupe; returns `Sweep` | hl |
 | `vkformat.rs` | `MTLPixelFormat` -> `VkFormat` table | hl `MTLPixelFormat` |
 | `dfd.rs` | KTX2 Data Format Descriptor derived from hl `FormatKind` | hl `format` |
 | `ktx.rs` | KTX2 container writer | `dfd` (as bytes only) |
@@ -171,23 +166,29 @@ clippy::indexing_slicing)` outside tests, inherited from tool-2.
 1. `Capture::open(bundle)`. The substrate checks the bundle's shape and
    the unlock env var before touching anything global, so the tool does
    no pre-validation of its own.
-2. **Walk the object map** (`cap.texture_descriptor(ref)` for every ref
-   `0..=max_stream_ref`). The replayer's `GTMTLReplayObjectMap` holds the
+2. **Enumerate the loaded textures.** `cap.loaded_textures()` is every
+   loaded texture with its descriptor, from the snapshot hl takes of the
+   replayer's `GTMTLReplayObjectMap` at `Capture::open`. The map holds the
    live, typed Metal objects the load created, keyed by streamRef exactly
-   like the fetch, so this names every loaded texture and its
-   authoritative descriptor with no bundle parse and no positional join
-   (hl 0.2.0, section 13). Unused resources are absent without force-load
-   (MEASURED, `known-textures-late`: 3 refs without, 7 with). A texture
-   view is its own entry (MEASURED, `known-stencil`: five textures plus the
-   `X32_Stencil8` view make 6). `Err(ObjectMapError)` means the map is not
-   where the substrate's measured offset says; that takes out every
-   descriptor at once and is handled in step 4.
-   **This walk must precede playback**: MEASURED on every fixture, with
-   and without force-load, the map is populated at open, EMPTY after
-   `play_all` (and `play_to`), and repopulated in full once a fetch has
-   returned at least one real texture; a fetch of only nonexistent refs
-   does not repopulate it. `known-ycbcr` is the one fixture whose map
-   survives playback.
+   like the fetch, so this is authoritative with no bundle parse, no
+   positional join, and no ref range to sweep (hl 0.3.0, section 13).
+   Unused resources are absent without force-load (MEASURED,
+   `known-textures-late`: 3 loaded without, 7 with). A texture view is
+   its own entry (MEASURED, `known-stencil`: five textures plus the
+   `X32_Stencil8` view make 6). `cap.unused_resource_refs()` is the
+   resources (of any kind) the replayer force-loaded that no captured
+   command uses; the replayer tracks these only under force-load
+   (MEASURED: 0 without it, 4 with, on `known-textures-late`), so the
+   manifest reports the count only then. `Err(ObjectMapError)` means the
+   map was not where the substrate's measured offset says at open; that
+   takes out enumeration and every descriptor at once, so the run stops
+   with `sweep_error` before playback and nothing is fetched.
+   hl snapshots at open because playback clears the live map in place:
+   MEASURED on hl 0.2.0 on every fixture, with and without force-load, a
+   live walk finds the textures at open, nothing after `play_all` (and
+   `play_to`), and everything again once a fetch has returned at least
+   one real texture; a fetch of only nonexistent refs does not repopulate
+   it. `known-ycbcr` was the one fixture whose map survived playback.
 3. **Position playback** per `--fetch-at`: `play_all()` by default. A session opens at
    command 0, where a render target or drawable still holds its pre-frame
    contents (MEASURED on a wgpu capture, `vibeboy_winit.gputrace`: both
@@ -209,16 +210,10 @@ clippy::indexing_slicing)` outside tests, inherited from tool-2.
    step 2 are fetched with `cap.textures(refs)` in chunks of 2000. A chunk
    that fails is retried one ref at a time, so a refusal lands on the ref
    that caused it as a per-texture failure (aspect from its descriptor's
-   format) and the rest of the chunk still counts. Then the map is walked
-   again: it is populated again now, and this second walk supplies the
-   descriptors of the fetched state and any ref that only playback made
-   loadable (none on any fixture, MEASURED), which is fetched the same
-   way. If the map was empty at open, or unreadable, every ref up to the
-   bound is fetched in chunks instead (0.1.x's sweep), a failed chunk is
-   recorded in `sweep_error`, and, when the map was merely empty, the
-   post-fetch walk still supplies descriptors; when it was unreadable the
-   run carries `sweep_error` naming the map error and writes no
-   descriptor metadata. Each `Texture` is classified by `format_kind()`:
+   format) and the rest of the chunk still counts (MEASURED on hl 0.2.0,
+   `known-textures-late` after `play_all` under force-load: the batch of
+   seven fails with "Metal object creation failed."). Each `Texture` is
+   classified by `format_kind()`:
    - `is_depth_only()` -> `Aspect::Depth`
    - `is_stencil_only()` -> `Aspect::Stencil` (a base `Stencil8`, or an
      app-created `X24/X32_Stencil8` view; MEASURED, `known-stencil`)
@@ -231,8 +226,8 @@ clippy::indexing_slicing)` outside tests, inherited from tool-2.
    since the tool cannot say which is the texture. This is the check
    tool-2 lacked when it overwrote one file with another's.
 6. **Describe.** Each fetched record takes the descriptor at its own
-   streamRef from the post-fetch walk (falling back to the pre-playback
-   walk). There is no rank join, so there is nothing to grade: a
+   streamRef from the snapshot. There is no rank join, so there is
+   nothing to grade: a
    descriptor is always the fetched texture's own (MEASURED,
    `known-ambiguous`: refs 2, 3, 4 carry mip counts 1, 3, 7 and fetch red,
    green, blue, the colours construction pinned to those counts). The
@@ -240,9 +235,9 @@ clippy::indexing_slicing)` outside tests, inherited from tool-2.
    combined depth-stencil resource is the combined format while each file
    holds one aspect of it (MEASURED, `known-depth-stencil`: descriptor 260
    `Depth32Float_Stencil8`, plane 0 serves 252 `Depth32Float`). Coverage
-   is `{ loaded, answered, highest_stream_ref }`: loaded textures in the
-   map up to the bound, distinct refs the fetch answered, and the highest
-   loaded ref (the bound warning's input).
+   is `{ loaded, answered, unused_resources }`: textures in the snapshot,
+   distinct refs the fetch answered, and (under force-load only, else
+   `null`) the force-loaded resources no captured command uses.
 7. **3D check.** The fetch cannot reveal a volume: `Texture::depth()`
    reads 1 even for a 16x16x4 volume, because the fetch serves exactly
    one fixed z-plane and reports that plane (MEASURED, hl
@@ -474,14 +469,12 @@ information.
   "bundle": "...",
   "tool_version": "0.2.0",
   "engine": "gputools-replay-hl <version from Cargo.lock> (<source>)",
-  "max_stream_ref": 1000000,
-  "max_stream_ref_source": "default" | "flag",
   "fetch_at": "end",
   "replayed_to_command_index": 369,
   "force_load_unused": false,
   "timeout_secs": 600,
   "assumptions": ["..."],
-  "coverage": {"loaded": 182, "answered": 182, "highest_stream_ref": 1113},
+  "coverage": {"loaded": 182, "answered": 182, "unused_resources": null},
   "textures": [
     {"stream_ref": 25, "aspect": "color", "file": "ref25_2880x2592_BGRA8Unorm.ktx2",
      "mtl_pixel_format": "BGRA8Unorm", "mtl_pixel_format_raw": 80,
@@ -498,21 +491,22 @@ information.
 }
 ```
 
-`coverage` is present whenever the object map was readable. `loaded`
-counts the textures the map held at refs up to the bound (across both
-walks), `answered` the distinct pass-1 streamRefs after dedupe, and
-`highest_stream_ref` the highest loaded ref (`null` when nothing was
-loaded). `descriptor` is `null` only when the map was unreadable.
+`coverage` is present whenever the object map was readable at open.
+`loaded` counts the textures in the snapshot, `answered` the distinct
+pass-1 streamRefs after dedupe, and `unused_resources` the force-loaded
+resources of any kind that no captured command uses, `null` without
+`--force-load-unused` because the replayer reports them only then.
+`descriptor` is never `null` on a run that fetched anything: an
+unreadable map stops the run before playback.
 
 **Exit code:** 0 if `failures` is empty and `sweep_error` and `open_error`
 are null; 1 otherwise, including a load refused by the replayer (the
 manifest then carries `open_error` and nothing else was written); 2 for a
 failure before anything could run (bad arguments, not a capture bundle,
 `--out` not creatable), in which case no manifest is written. An empty
-`textures` list warns on stderr (wrong bundle, `--max-stream-ref` too
-low, or textures no captured command uses, which `--force-load-unused`
-makes the replayer create) but is not a failure; so does a highest loaded
-ref within 64 of the bound.
+`textures` list warns on stderr (wrong bundle, or textures no captured
+command uses, which `--force-load-unused` makes the replayer create) but
+is not a failure.
 
 ## 8. Error handling
 
@@ -520,9 +514,9 @@ ref within 64 of the bound.
 | --- | --- | --- | --- |
 | before the sweep | not a capture bundle (missing, or without `index`/`metadata`), `--out` not creatable, bad arguments | stderr | 2 |
 | load refused | the replayer refuses to load the capture (`Capture::open` fails past the bundle-shape check: unlock var, bootstrap, or a resource it cannot create, e.g. a compute pipeline under force-load) | `open_error` in a manifest with the run's settings; stderr names `--force-load-unused` as the likely cause when it was on | 1 |
-| run-level | the object map unreadable (`ObjectMapError`: the range sweep runs without descriptors), a failed chunk of that range sweep, `Error::Session` / `Error::Fetch` from pass 2 | `sweep_error` | 1 |
+| run-level | the object map unreadable at open (`ObjectMapError`: nothing can be enumerated, so the run stops before playback), `Error::Session` / `Error::Fetch` from pass 2 | `sweep_error` | 1 |
 | per-texture | a ref the replayer refuses to fetch (retried alone after its chunk failed), unmapped format, volume with depth > 1, conflicting duplicate, `Truncated`, `FormatMismatch`, payload length mismatch, file write error | `failures[]` | 1 |
-| informational | identical duplicates, stencil probes, a highest loaded ref near the bound | `duplicates`, `stencil_probes`, `coverage` | 0 |
+| informational | identical duplicates, stencil probes, unused resources | `duplicates`, `stencil_probes`, `coverage` | 0 |
 
 hl's `Error` is matched by variant and only turned into a string when it
 is written to the manifest, so the reason text always says which kind of
@@ -583,20 +577,19 @@ Inherited from the substrate; restated because they bind this tool's
    no parameter to select another, and reports depth 1 for it (MEASURED,
    `known-3d`). The descriptor names the volume; a depth-1 volume is
    written and typed in the KV data.
-4. **Discovery is a bounded walk, not an enumeration.** The object map
-   can enumerate its resources (`-[GTMTLReplayObjectMap resources]`,
-   hl's design notes), but hl 0.2.0 binds only `tryGetTextureForKey:`,
-   so the tool looks up every ref to `--max-stream-ref`. Cheap enough
-   (section 3) that the bound is a formality, but a ref past it is
-   invisible; the near-bound warning is the only signal. Buffers, heaps,
-   and the other resource classes share the ref space and are not
-   textures, so they are never fetched.
-5. **The map empties after playback.** Section 5, step 2: the refs come
-   from a walk before playback, so a texture that only exists after
-   playback would be missed by that walk and caught only by the second
-   one, which runs after a fetch has repopulated the map. On every
-   fixture the two walks agree. Whether the replayer can create a
-   texture during playback that the load did not is unmeasured.
+4. **Enumeration is a snapshot at open.** hl 0.3.0 reads the object map
+   once, at `Capture::open`, because playback clears the live map. A
+   texture the replayer creates only during playback, if such a thing
+   exists, would not be in the snapshot; on every fixture the set after a
+   post-playback fetch equals the set at open, and whether the replayer
+   can create a texture during playback that the load did not is
+   unmeasured.
+5. **Unused resources are counted only under force-load.** The replayer
+   tracks `unusedResourceKeys` for the resources it force-loaded, so
+   without `--force-load-unused` the tool cannot say how many textures
+   the capture holds that it did not export; `unused_resources` is
+   `null` then, and the offline bundle count that 0.1.x reported was a
+   heuristic hl no longer ships by default.
 6. **PVRTC has no KTX2 representation.**
 7. **Alpha premultiplication is assumed straight**, disclosed in KV data.
 
@@ -621,17 +614,15 @@ Inherited from the substrate; restated because they bind this tool's
   failures with the right reason; a `Type3D` with depth 1 is written;
   descriptor keys (including `resourcePixelFormat` and `sampleCount`)
   present only with a descriptor, and no attribution key.
-- `sweep`: over a fake fetcher whose map empties on `replay()` and
-  refills on the first real fetch, as measured: only mapped refs are
-  fetched, after playback, each with its own descriptor; a ref the
-  post-fetch walk adds is fetched too; an empty map at open falls back to
-  the range sweep and still gets descriptors; an unreadable map falls
-  back without descriptors and marks the run; a failed chunk is retried
-  ref by ref with the failure on the refusing ref; identical-duplicate
-  collapse and conflicting-duplicate failure; coverage arithmetic;
-  pass-2 selection (depth records probed, stencil-only replies kept,
-  echoed depth replies dropped, probe outcomes recorded, the aspect
-  carrying its ref's descriptor).
+- `sweep`: over a fake fetcher with a loaded-texture snapshot: only
+  loaded refs are fetched, after playback, each with its own descriptor;
+  `unused_resources` is reported only under force-load; an unreadable
+  map stops the run before playback; a failed chunk is retried ref by
+  ref with the failure on the refusing ref; identical-duplicate collapse
+  and conflicting-duplicate failure; coverage arithmetic; pass-2
+  selection (depth records probed, stencil-only replies kept, echoed
+  depth replies dropped, probe outcomes recorded, the aspect carrying
+  its ref's descriptor).
 - `manifest`: exit-code policy, serialisation shape, `coverage` omitted
   when absent.
 
@@ -645,8 +636,8 @@ capture skips with a message naming `fixtures/build-all.sh`.
 
 | test | capture | flags | ground truth checked |
 | --- | --- | --- | --- |
-| `oracle_textures` | `known-textures-late` | `--force-load-unused` | cyan BGRA in blit source and destination; coverage loaded 7, answered 7; every entry carries its descriptor |
-| `oracle_coverage_gap` | `known-textures-late` | (none) | 3 loaded and answered (the used textures; the four unused ones are absent from the map), highest ref 4, no failures, exit 0 |
+| `oracle_textures` | `known-textures-late` | `--force-load-unused` | cyan BGRA in blit source and destination; coverage loaded 7, answered 7, `unused_resources` 4; every entry carries its descriptor |
+| `oracle_coverage_gap` | `known-textures-late` | (none) | 3 loaded and answered (the used textures; the four unused ones are absent from the map), `unused_resources` null, no failures, exit 0 |
 | `oracle_depth` | `known-depth` | | a `Depth32Float` file reading 0.5 everywhere |
 | `oracle_depth_stencil` | `known-depth-stencil` | | one ref yields a depth file (0.5) and a `_stencil` file (42); probe `written`; both descriptors name `Depth32Float_Stencil8` |
 | `oracle_stencil` | `known-stencil` | | a `Stencil8` file reading 42; the combined resource's depth ref probes `written`; 6 loaded (five textures plus the `X32_Stencil8` view, exported as its own file) |
@@ -768,3 +759,22 @@ all on the fixture corpus:
   ref and descriptor (`known-stencil`: 6 loaded where the bundle listed 5).
 - Not exposed by hl 0.2.0, wanted: enumeration of the map (the
   framework's `-resources`), which would retire the bounded walk.
+
+### hl 0.3.0 (2026-09-09): enumeration and the open-time snapshot
+
+hl 0.3.0 added `Capture::loaded_textures() -> Result<&[(u64, TextureDescriptor)], ObjectMapError>`,
+`loaded_texture_refs()`, and `unused_resource_refs()`, all served, along
+with `texture_descriptor`, from a snapshot of the object map taken at
+`Capture::open`, when the map is guaranteed populated. This retires the
+bounded walk (and the tool's `--max-stream-ref` flag, `max_stream_ref`
+manifest fields, and the near-bound warning) and makes the descriptor
+API independent of playback. Measured here against that release:
+
+- The snapshot names the same textures the 0.2.0 walk found on every
+  fixture, and the oracle suite passes unchanged in its ground truth.
+- `unused_resource_refs()` is empty without force-load and names the four
+  force-loaded unused textures of `known-textures-late` with it: the
+  replayer records unused keys only for resources it actually created.
+  The tool reports the count under force-load and `null` otherwise.
+- An unreadable map is now fatal to the run (no fallback sweep), since
+  without enumeration there is no other way to learn a ref.

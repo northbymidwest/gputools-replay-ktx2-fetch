@@ -10,11 +10,7 @@ fn a_volume_is_a_named_failure_not_a_partial_file() {
     let Some(cap) = capture("known-3d") else {
         return;
     };
-    let r = run_cli(
-        &cap,
-        "3d",
-        &["--force-load-unused", "--max-stream-ref", "200"],
-    );
+    let r = run_cli(&cap, "3d", &["--force-load-unused"]);
     assert_eq!(
         r.status, 1,
         "a refused volume is a per-texture failure: {}",

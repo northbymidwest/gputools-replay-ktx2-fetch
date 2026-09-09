@@ -39,7 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_version_is_0_2_0() {
-        assert_eq!(TOOL_VERSION, "0.2.0");
+    fn tool_version_is_0_3_0() {
+        assert_eq!(TOOL_VERSION, "0.3.0");
     }
 }

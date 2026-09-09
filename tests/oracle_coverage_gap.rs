@@ -12,12 +12,16 @@ fn unread_textures_are_absent_without_force_load() {
     let Some(cap) = capture("known-textures-late") else {
         return;
     };
-    let r = run_cli(&cap, "gap", &["--max-stream-ref", "200"]);
+    let r = run_cli(&cap, "gap", &[]);
     assert_eq!(r.status, 0, "{}", r.stderr);
     let m = &r.manifest;
     assert_eq!(m["coverage"]["loaded"], 3);
     assert_eq!(m["coverage"]["answered"], 3);
-    assert_eq!(m["coverage"]["highest_stream_ref"], 4);
+    assert_eq!(
+        m["coverage"]["unused_resources"],
+        serde_json::Value::Null,
+        "the replayer reports unused resources only under force-load"
+    );
     assert_eq!(entries(&r).len(), 3);
     assert!(m["failures"].as_array().unwrap().is_empty());
     assert_eq!(

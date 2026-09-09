@@ -7,7 +7,7 @@ fn astc_blocks_are_written_raw_and_byte_exact() {
     let Some(cap) = capture("known-astc") else {
         return;
     };
-    let r = run_cli(&cap, "astc", &["--max-stream-ref", "200"]);
+    let r = run_cli(&cap, "astc", &[]);
     assert_eq!(r.status, 0, "{}", r.stderr);
     validate_all(&r.out);
     let es = entries(&r);

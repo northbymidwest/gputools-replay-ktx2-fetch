@@ -55,10 +55,6 @@ Flags:
 - `--force-load-unused`: also fetch textures that no captured command
   reads. Without it the replayer never creates those, so they are absent
   rather than failed.
-- `--max-stream-ref N` (default 1000000): the highest streamRef the tool
-  asks the replayer about. A lookup costs a quarter of a microsecond, so
-  the default needs no tuning; the tool warns if a loaded ref comes
-  within 64 of it.
 - `--timeout SECS` (default 600): per fetch. Large captures take minutes;
   slow is not hung.
 - `--fetch-at end|start|N` (default `end`): where in the captured command

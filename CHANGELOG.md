@@ -2,6 +2,26 @@
 
 Notable changes per release. Dates are the publish date.
 
+## 0.3.0 - 2026-09-09
+
+Built on gputools-replay-hl 0.3.0, which enumerates the replayer's loaded
+textures from a snapshot taken when the capture opens.
+
+### Changed
+
+- Textures are enumerated, not swept: the tool fetches exactly the
+  textures the replayer loaded. `--max-stream-ref`, the manifest's
+  `max_stream_ref` and `max_stream_ref_source`, and the near-bound warning
+  are gone.
+- `coverage` is `{loaded, answered, unused_resources}`. `unused_resources`
+  counts the force-loaded resources no captured command uses and is `null`
+  without `--force-load-unused`, because the replayer reports them only
+  then.
+- A replayer whose object map cannot be read stops the run before playback
+  with `sweep_error`, instead of falling back to a fetch sweep without
+  descriptors.
+- The engine is pinned to `gputools-replay-hl = "=0.3.0"`.
+
 ## 0.2.0 - 2026-09-09
 
 Built on gputools-replay-hl 0.2.0, whose texture descriptors now come off

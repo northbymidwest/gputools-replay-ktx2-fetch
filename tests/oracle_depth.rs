@@ -10,11 +10,7 @@ fn depth32float_reads_half_everywhere() {
     // This fixture's content was stored before the capture boundary and is not
     // reproduced by replaying its commands, so it defines the snapshot state
     // only (MEASURED: after play_all it reads NaN/zero/altered). Fetch at start.
-    let r = run_cli(
-        &cap,
-        "depth",
-        &["--fetch-at", "start", "--max-stream-ref", "200"],
-    );
+    let r = run_cli(&cap, "depth", &["--fetch-at", "start"]);
     assert_eq!(r.status, 0, "{}", r.stderr);
     validate_all(&r.out);
     let es = entries(&r);

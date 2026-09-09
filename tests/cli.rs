@@ -9,13 +9,7 @@ fn help_lists_every_flag() {
     let out = bin().arg("--help").output().unwrap();
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
-    for flag in [
-        "--out",
-        "--max-stream-ref",
-        "--force-load-unused",
-        "--timeout",
-        "--fetch-at",
-    ] {
+    for flag in ["--out", "--force-load-unused", "--timeout", "--fetch-at"] {
         assert!(text.contains(flag), "missing {flag} in:\n{text}");
     }
 }
