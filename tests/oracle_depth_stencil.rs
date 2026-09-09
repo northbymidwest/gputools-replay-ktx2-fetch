@@ -35,11 +35,9 @@ fn a_combined_resource_yields_a_depth_file_and_a_stencil_sibling() {
         })
         .expect("no Depth32Float file reading 0.5 everywhere");
     let stream_ref = d["stream_ref"].as_u64().unwrap();
-    assert_eq!(
-        d["descriptor"],
-        serde_json::Value::Null,
-        "combined aspects carry no descriptor"
-    );
+    // The descriptor names the resource the replayer created: the combined
+    // format, while each file holds one aspect of it.
+    assert_eq!(d["descriptor"]["pixel_format"], "Depth32Float_Stencil8");
     assert_eq!(d["vk_format"], "D32_SFLOAT");
 
     let s = es
@@ -48,7 +46,12 @@ fn a_combined_resource_yields_a_depth_file_and_a_stencil_sibling() {
         .unwrap_or_else(|| panic!("no stencil sibling for ref {stream_ref}"));
     assert!(s["file"].as_str().unwrap().ends_with("_stencil.ktx2"));
     assert_eq!(s["vk_format"], "S8_UINT");
-    assert_eq!(s["descriptor"], serde_json::Value::Null);
+    assert_eq!(s["descriptor"]["pixel_format"], "Depth32Float_Stencil8");
+    assert!(
+        kv_of(&r, s)
+            .iter()
+            .any(|(k, v)| k == "gputrace.resourcePixelFormat" && v == "Depth32Float_Stencil8 (260)")
+    );
     let px = level0_of(&r, s);
     let (w, h) = (d["width"].as_u64().unwrap(), d["height"].as_u64().unwrap());
     assert_eq!(

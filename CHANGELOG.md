@@ -2,9 +2,58 @@
 
 Notable changes per release. Dates are the publish date.
 
-## Unreleased
+## 0.2.0 - 2026-09-09
+
+Built on gputools-replay-hl 0.2.0, whose texture descriptors now come off
+the replayer's live object map, keyed by streamRef, instead of a parse of
+the bundle joined by creation order.
+
+### Added
+
+- The manifest's `descriptor` carries `pixel_format` (the resource's own
+  format, which for a combined depth-stencil resource names the combined
+  format while each file holds one aspect) and `sample_count`; every file
+  carries `gputrace.resourcePixelFormat` and `gputrace.sampleCount`.
+- A combined depth-stencil resource's depth file and `_stencil` sibling
+  both carry its descriptor. A texture view is exported as its own
+  texture with its own descriptor.
+- A ref the replayer refuses to fetch is a per-texture failure naming that
+  ref: a failed batch is retried one ref at a time instead of losing the
+  whole chunk.
+- A warning when the highest loaded streamRef is within 64 of
+  `--max-stream-ref`.
+
+### Changed
+
+- Textures are discovered by asking the replayer's object map about every
+  streamRef up to the bound and fetching the ones it names, instead of
+  fetching every ref and keeping what answers. A lookup costs about a
+  quarter of a microsecond, so `--max-stream-ref` now defaults to
+  1000000 and the bundle-derived bound is gone (`max_stream_ref_source`
+  is `flag` or `default`).
+- Every exported texture carries its own descriptor. The descriptor is
+  the texture's own by construction, so the `attribution` field and the
+  `gputrace.descriptorAttribution` key are gone, and a 3D volume with
+  depth greater than 1 is always refused rather than only when its
+  attribution was certain.
+- `coverage` is `{loaded, answered, highest_stream_ref}`: textures the
+  replayer loaded within the bound, distinct refs fetched, and the highest
+  loaded ref. It is present whenever the object map was readable.
+- The engine is pinned to `gputools-replay-hl = "=0.2.0"`.
+
+### Removed
+
+- `bundle_manifest` and the bundle-parse coverage fields (`attributed`,
+  `unattributed`, `listed_not_answered`) from the manifest, and the
+  offline bundle reader they came from. Without `--force-load-unused` an
+  unused texture is simply absent from the replayer, not counted.
 
 ### Fixed
+
+- Texture descriptors on captures the bundle parser could not read (an
+  SDL3 capture reported zero descriptors while its textures fetched fine)
+  and on captures where the creation-order join could have shifted a
+  descriptor onto a same-geometry neighbour.
 
 - A capture the replayer refuses to load (for example a wgpu capture whose
   unused compute pipeline cannot be rebuilt under `--force-load-unused`)
@@ -23,8 +72,8 @@ Notable changes per release. Dates are the publish date.
   selects the playback position; the manifest records `fetch_at` and
   `replayed_to_command_index`, and every file carries
   `gputrace.commandIndex`.
-- The engine dependency is pinned exactly (`gputools-replay-hl = "=0.1.1"`),
-  so an unlocked `cargo install` still builds against the tested engine.
+- The engine dependency is pinned exactly, so an unlocked `cargo install`
+  still builds against the tested engine.
 
 ## 0.1.2 - 2026-09-04
 

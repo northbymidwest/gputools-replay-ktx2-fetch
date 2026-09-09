@@ -3,20 +3,13 @@
 
 use crate::dfd;
 use crate::ktx::{Ktx2Params, write_ktx2};
-use crate::manifest::{Attribution, DescriptorEntry, Failure, Manifest, TextureEntry};
+use crate::manifest::{DescriptorEntry, Failure, Manifest, TextureEntry};
 use crate::tex::{Aspect, Payload, Tex, aspect_bpp};
 use crate::vkformat::{lookup, metal_name};
 use gputools_replay_hl::format::FormatKind;
-use gputools_replay_hl::{MTLTextureType, TextureDescriptor};
+use gputools_replay_hl::{MTLPixelFormat, MTLTextureType, TextureDescriptor};
 use std::borrow::Cow;
 use std::path::Path;
-
-/// A descriptor the join attributed, with the grade from spec 5 step 5.
-#[derive(Debug, Clone, Copy)]
-pub struct Attributed {
-    pub descriptor: TextureDescriptor,
-    pub attribution: Attribution,
-}
 
 /// One record the sweep decided to write.
 pub struct Fetched<T> {
@@ -25,7 +18,9 @@ pub struct Fetched<T> {
     /// True for a stencil aspect obtained by the pass-2 probe (plane 1);
     /// such files get the `_stencil` suffix.
     pub probed: bool,
-    pub descriptor: Option<Attributed>,
+    /// The resource's descriptor, read off the replayer's live texture for
+    /// this streamRef. `None` only when the object map could not be read.
+    pub descriptor: Option<TextureDescriptor>,
 }
 
 pub struct Context<'a> {
@@ -54,6 +49,12 @@ pub fn texture_type_name(t: MTLTextureType) -> &'static str {
 
 fn texture_type(d: &TextureDescriptor) -> MTLTextureType {
     MTLTextureType(d.texture_type as _)
+}
+
+/// The resource's own pixel format. A combined depth-stencil resource
+/// names the combined format here while each file holds one aspect.
+fn resource_format_name(d: &TextureDescriptor) -> String {
+    metal_name(MTLPixelFormat(d.pixel_format as _))
 }
 
 pub fn file_name<T: Tex>(f: &Fetched<T>) -> String {
@@ -124,24 +125,23 @@ fn provenance_kv<T: Tex>(
         ),
         ("gputrace.streamRef".to_string(), t.stream_ref().to_string()),
     ];
-    if let Some(a) = &f.descriptor {
-        let d = &a.descriptor;
-        let grade = match a.attribution {
-            Attribution::Certain => "certain",
-            Attribution::Ambiguous => "ambiguous",
-        };
+    if let Some(d) = &f.descriptor {
         kv.push((
             "gputrace.arrayLength".to_string(),
             d.array_length.to_string(),
         ));
         kv.push(("gputrace.depth".to_string(), d.depth.to_string()));
         kv.push((
-            "gputrace.descriptorAttribution".to_string(),
-            grade.to_string(),
-        ));
-        kv.push((
             "gputrace.mipLevelCount".to_string(),
             d.mip_levels.to_string(),
+        ));
+        kv.push((
+            "gputrace.resourcePixelFormat".to_string(),
+            format!("{} ({})", resource_format_name(d), d.pixel_format),
+        ));
+        kv.push((
+            "gputrace.sampleCount".to_string(),
+            d.sample_count.to_string(),
         ));
         kv.push((
             "gputrace.textureType".to_string(),
@@ -208,18 +208,17 @@ pub fn emit_one<T: Tex>(ctx: &Context, f: &Fetched<T>, man: &mut Manifest) {
         });
     };
 
-    // Spec 5 step 6: a certain-attributed volume with depth > 1 cannot say
-    // which z-plane it holds. Depth-1 volumes and ambiguous ones are written.
-    if let Some(a) = &f.descriptor
-        && a.attribution == Attribution::Certain
-        && texture_type(&a.descriptor) == MTLTextureType::Type3D
-        && a.descriptor.depth > 1
+    // Spec 5 step 6: a volume with depth > 1 cannot say which z-plane it
+    // holds. Depth-1 volumes are written.
+    if let Some(d) = &f.descriptor
+        && texture_type(d) == MTLTextureType::Type3D
+        && d.depth > 1
     {
         return fail(
             man,
             format!(
                 "3D texture, depth {}: the fetch serves one unidentified z-plane",
-                a.descriptor.depth
+                d.depth
             ),
         );
     }
@@ -325,13 +324,14 @@ pub fn emit_one<T: Tex>(ctx: &Context, f: &Fetched<T>, man: &mut Manifest) {
         height: t.height(),
         bytes_per_row: t.bytes_per_row(),
         rows_repacked,
-        descriptor: f.descriptor.as_ref().map(|a| DescriptorEntry {
-            mip_levels: a.descriptor.mip_levels,
-            array_length: a.descriptor.array_length,
-            depth: a.descriptor.depth,
-            texture_type: texture_type_name(texture_type(&a.descriptor)).to_string(),
-            usage: a.descriptor.usage,
-            attribution: a.attribution,
+        descriptor: f.descriptor.as_ref().map(|d| DescriptorEntry {
+            pixel_format: resource_format_name(d),
+            texture_type: texture_type_name(texture_type(d)).to_string(),
+            depth: d.depth,
+            mip_levels: d.mip_levels,
+            array_length: d.array_length,
+            sample_count: d.sample_count,
+            usage: d.usage,
         }),
     });
 }
@@ -355,17 +355,16 @@ mod tests {
 
     fn desc(texture_type: u32, depth: u32, mips: u32, arr: u32) -> TextureDescriptor {
         TextureDescriptor {
-            store0_offset: 0,
-            format: 80,
-            texture_type,
+            stream_ref: 9,
             width: 4,
             height: 4,
             depth,
+            pixel_format: 80,
+            texture_type,
             mip_levels: mips,
             array_length: arr,
             sample_count: 1,
             usage: 5,
-            texture_id: 0,
         }
     }
 
@@ -521,18 +520,15 @@ mod tests {
     }
 
     #[test]
-    fn volumes_are_refused_only_when_certain_and_deeper_than_one() {
+    fn volumes_are_refused_only_when_deeper_than_one() {
         let t = FakeTex::solid(9, 4, 4, 80, &[1, 2, 3, 4]);
         let deep = Fetched {
             texture: t.clone(),
             aspect: Aspect::Color,
             probed: false,
-            descriptor: Some(Attributed {
-                descriptor: desc(7, 4, 1, 1),
-                attribution: Attribution::Certain,
-            }),
+            descriptor: Some(desc(7, 4, 1, 1)),
         };
-        let (man, _) = run("vol_certain", &deep);
+        let (man, _) = run("vol_deep", &deep);
         assert!(man.textures.is_empty());
         assert!(
             man.failures[0].reason.contains("3D texture, depth 4"),
@@ -541,19 +537,17 @@ mod tests {
         );
 
         let flat = Fetched {
-            texture: t.clone(),
+            texture: t,
             aspect: Aspect::Color,
             probed: false,
-            descriptor: Some(Attributed {
-                descriptor: desc(7, 1, 1, 1),
-                attribution: Attribution::Certain,
-            }),
+            descriptor: Some(desc(7, 1, 1, 1)),
         };
         let (man, out) = run("vol_depth1", &flat);
         assert!(man.failures.is_empty(), "{:?}", man.failures);
         let d = man.textures[0].descriptor.as_ref().unwrap();
         assert_eq!(d.texture_type, "3D");
-        assert_eq!(d.attribution, Attribution::Certain);
+        assert_eq!(d.pixel_format, "BGRA8Unorm");
+        assert_eq!(d.sample_count, 1);
         let file = std::fs::read(out.join(&man.textures[0].file)).unwrap();
         let kv = kv_pairs(&file);
         assert!(
@@ -563,26 +557,16 @@ mod tests {
         assert!(kv.iter().any(|(k, v)| k == "gputrace.depth" && v == "1"));
         assert!(
             kv.iter()
-                .any(|(k, v)| k == "gputrace.descriptorAttribution" && v == "certain")
+                .any(|(k, v)| k == "gputrace.resourcePixelFormat" && v == "BGRA8Unorm (80)")
         );
-
-        let ambiguous = Fetched {
-            texture: t,
-            aspect: Aspect::Color,
-            probed: false,
-            descriptor: Some(Attributed {
-                descriptor: desc(7, 4, 1, 1),
-                attribution: Attribution::Ambiguous,
-            }),
-        };
-        let (man, _) = run("vol_ambiguous", &ambiguous);
         assert!(
-            man.failures.is_empty(),
-            "an ambiguous attribution never withholds bytes"
+            kv.iter()
+                .any(|(k, v)| k == "gputrace.sampleCount" && v == "1")
         );
-        assert_eq!(
-            man.textures[0].descriptor.as_ref().unwrap().attribution,
-            Attribution::Ambiguous
+        assert!(
+            kv.iter()
+                .all(|(k, _)| k != "gputrace.descriptorAttribution"),
+            "no attribution grade: the descriptor is keyed by streamRef"
         );
     }
 
@@ -593,10 +577,7 @@ mod tests {
             texture: t,
             aspect: Aspect::Color,
             probed: false,
-            descriptor: Some(Attributed {
-                descriptor: desc(3, 1, 3, 6),
-                attribution: Attribution::Certain,
-            }),
+            descriptor: Some(desc(3, 1, 3, 6)),
         };
         let (man, out) = run("desc", &f);
         let file = std::fs::read(out.join(&man.textures[0].file)).unwrap();

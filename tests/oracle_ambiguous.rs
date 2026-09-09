@@ -3,10 +3,10 @@ mod common;
 use common::*;
 
 /// Three same-geometry BGRA textures whose colour pins their mip count by
-/// construction (red 1, green 3, blue 7). A shifted join would put the
-/// wrong count on a file.
+/// construction (red 1, green 3, blue 7). Descriptors are keyed by
+/// streamRef, so nothing can shift one texture's count onto another.
 #[test]
-fn same_geometry_textures_get_the_right_mip_count_and_grade_certain() {
+fn same_geometry_textures_get_their_own_mip_count() {
     let Some(cap) = capture("known-ambiguous") else {
         return;
     };
@@ -45,12 +45,12 @@ fn same_geometry_textures_get_the_right_mip_count_and_grade_certain() {
             "ref {}",
             e["stream_ref"]
         );
-        assert_eq!(e["descriptor"]["attribution"], "certain");
         let kv = kv_of(&r, e);
         assert!(
             kv.iter()
                 .any(|(k, v)| k == "gputrace.mipLevelCount" && v == &expected_mips.to_string())
         );
     }
-    assert_eq!(r.manifest["coverage"]["attributed"], 3);
+    assert_eq!(r.manifest["coverage"]["loaded"], 3);
+    assert_eq!(r.manifest["coverage"]["answered"], 3);
 }

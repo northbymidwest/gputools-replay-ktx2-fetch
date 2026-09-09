@@ -4,22 +4,16 @@ use crate::tex::Aspect;
 use serde::Serialize;
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum BundleManifest {
-    Ok { textures_listed: usize },
-    NoDescriptors,
-    Unparseable,
-}
-
+/// What the replayer's object map held up to the bound, against what the
+/// fetch returned.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct Coverage {
+    /// Textures the replayer loaded with a streamRef up to the bound.
+    pub loaded: usize,
     /// Distinct pass-1 streamRefs after dedupe.
     pub answered: usize,
-    pub attributed: usize,
-    pub unattributed: usize,
-    /// Descriptors the bundle lists that no fetched texture claimed.
-    pub listed_not_answered: usize,
+    /// The highest loaded streamRef; `None` when nothing was loaded.
+    pub highest_stream_ref: Option<u64>,
 }
 
 /// Where in the captured command stream the fetch happens (spec 3).
@@ -69,27 +63,22 @@ impl Serialize for FetchAt {
 pub enum BoundSource {
     /// `--max-stream-ref` was given.
     Flag,
-    /// The bundle's index record count, plus a margin.
-    BundleRecordCount,
-    /// The bundle could not be read; the built-in ceiling.
+    /// The built-in ceiling.
     Default,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Attribution {
-    Certain,
-    Ambiguous,
-}
-
+/// The resource as the replayer created it, read off its live `MTLTexture`
+/// (spec 5 step 2). `pixel_format` is the resource's own format, which for
+/// a combined depth-stencil texture differs from the aspect a file holds.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DescriptorEntry {
+    pub pixel_format: String,
+    pub texture_type: String,
+    pub depth: u32,
     pub mip_levels: u32,
     pub array_length: u32,
-    pub depth: u32,
-    pub texture_type: String,
+    pub sample_count: u32,
     pub usage: u64,
-    pub attribution: Attribution,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -147,7 +136,7 @@ pub struct Manifest {
     pub force_load_unused: bool,
     pub timeout_secs: u64,
     pub assumptions: Vec<String>,
-    pub bundle_manifest: BundleManifest,
+    /// Omitted when the object map could not be read (see `sweep_error`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Coverage>,
     pub textures: Vec<TextureEntry>,
@@ -184,11 +173,10 @@ impl Manifest {
                 format!("MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE={}; textures no captured command reads answer only when it is 1", u8::from(force_load_unused)),
                 format!("MTLREPLAYER_IGNORE_UNUSED_RESOURCE={}; when not force-loading, a texture the replayer cannot create because no captured command uses it is skipped instead of failing the whole fetch", u8::from(!force_load_unused)),
                 "textures are fetched at the playback position fetch_at (default: the end of the captured command stream, what the frame produced; `start` is the capture's stored snapshot); replayed_to_command_index is the index playback reached".to_string(),
-                "streamRefs are swept 0..=max_stream_ref in chunks; they are assigned by the replayer's load path and are not stored in the bundle, but the bundle's index record count bounds them".to_string(),
+                "every streamRef 0..=max_stream_ref is looked up in the replayer's object map, which holds the resources the load created (an unused texture is absent without force-load); only the refs it names as textures are fetched".to_string(),
+                "each descriptor is read off the live MTLTexture the replayer created for that streamRef; nothing is joined by position".to_string(),
                 "alpha is assumed straight (Metal does not record premultiplication)".to_string(),
-                "descriptor attribution is by creation-order rank; 'ambiguous' marks geometry groups where fetched and listed counts differ".to_string(),
             ],
-            bundle_manifest: BundleManifest::Unparseable,
             coverage: None,
             textures: Vec::new(),
             duplicates: Vec::new(),
@@ -269,18 +257,17 @@ mod tests {
     #[test]
     fn serialises_the_spec_shape() {
         let mut m = Manifest::new("cap.gputrace".into(), 2000, true, 600);
-        m.bundle_manifest = BundleManifest::Ok { textures_listed: 7 };
         m.coverage = Some(Coverage {
+            loaded: 7,
             answered: 7,
-            attributed: 7,
-            unattributed: 0,
-            listed_not_answered: 0,
+            highest_stream_ref: Some(9),
         });
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
-        assert_eq!(v["bundle_manifest"]["status"], "ok");
-        assert_eq!(v["bundle_manifest"]["textures_listed"], 7);
+        assert_eq!(v["coverage"]["loaded"], 7);
         assert_eq!(v["coverage"]["answered"], 7);
+        assert_eq!(v["coverage"]["highest_stream_ref"], 9);
+        assert_eq!(v["max_stream_ref_source"], "flag");
         assert_eq!(v["force_load_unused"], true);
         assert!(
             v["engine"]
@@ -291,10 +278,9 @@ mod tests {
         let m = Manifest::new("cap".into(), 1, false, 1);
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
-        assert_eq!(v["bundle_manifest"]["status"], "unparseable");
         assert!(
             v.get("coverage").is_none(),
-            "coverage is omitted without a parsed manifest"
+            "coverage is omitted when the object map was not read"
         );
         assert_eq!(v["sweep_error"], serde_json::Value::Null);
     }
@@ -312,8 +298,8 @@ mod tests {
     #[test]
     fn enums_serialise_lowercase() {
         assert_eq!(
-            serde_json::to_string(&Attribution::Certain).unwrap(),
-            "\"certain\""
+            serde_json::to_string(&BoundSource::Default).unwrap(),
+            "\"default\""
         );
         assert_eq!(
             serde_json::to_string(&ProbeOutcome::Written).unwrap(),

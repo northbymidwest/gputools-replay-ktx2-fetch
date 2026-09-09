@@ -15,9 +15,9 @@ the run.
 
 Supported formats: byte-aligned colour (8/16/32-bit, all numeric kinds,
 sRGB variants), depth and stencil, and BC, ETC2, EAC, and ASTC as raw blocks.
-Each file's KTX2 metadata records where it came from (streamRef, format,
-stride, and the bundle's mip count, array length, and texture type when the
-bundle describes it).
+Each file's KTX2 metadata records where it came from: streamRef, format,
+stride, and the resource's own format, mip count, array length, texture
+type, sample count, and usage, read off the texture the replayer created.
 
 ## Requirements
 
@@ -53,10 +53,12 @@ when the run could not start.
 Flags:
 
 - `--force-load-unused`: also fetch textures that no captured command
-  reads. Without it those are skipped and counted in the manifest as
-  `listed_not_answered`.
-- `--max-stream-ref N`: override the sweep bound. By default it comes from
-  the bundle itself and needs no tuning.
+  reads. Without it the replayer never creates those, so they are absent
+  rather than failed.
+- `--max-stream-ref N` (default 1000000): the highest streamRef the tool
+  asks the replayer about. A lookup costs a quarter of a microsecond, so
+  the default needs no tuning; the tool warns if a loaded ref comes
+  within 64 of it.
 - `--timeout SECS` (default 600): per fetch. Large captures take minutes;
   slow is not hung.
 - `--fetch-at end|start|N` (default `end`): where in the captured command

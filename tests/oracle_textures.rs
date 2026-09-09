@@ -5,7 +5,7 @@ use common::*;
 const CYAN: [u8; 4] = [0x00, 0xff, 0xff, 0xff];
 
 #[test]
-fn known_textures_late_writes_seven_attributed_bgra_files() {
+fn known_textures_late_writes_seven_described_bgra_files() {
     let Some(cap) = capture("known-textures-late") else {
         return;
     };
@@ -28,14 +28,16 @@ fn known_textures_late_writes_seven_attributed_bgra_files() {
     assert_eq!(files.len(), 7, "{:?}", files);
 
     let m = &r.manifest;
-    assert_eq!(m["bundle_manifest"]["status"], "ok");
-    assert_eq!(m["bundle_manifest"]["textures_listed"], 7);
+    assert_eq!(m["coverage"]["loaded"], 7);
     assert_eq!(m["coverage"]["answered"], 7);
-    assert_eq!(m["coverage"]["attributed"], 7);
-    assert_eq!(m["coverage"]["listed_not_answered"], 0);
+    assert_eq!(m["max_stream_ref_source"], "flag");
     assert!(m["failures"].as_array().unwrap().is_empty());
-
     let es = entries(&r);
+    assert!(
+        es.iter().all(|e| e["descriptor"].is_object()),
+        "every texture carries its own descriptor: {es:?}"
+    );
+
     let by_width = |w: u64| {
         es.iter()
             .find(|e| e["width"] == w)
@@ -44,7 +46,8 @@ fn known_textures_late_writes_seven_attributed_bgra_files() {
     // Blit source: fully cyan.
     let src = by_width(64);
     assert_eq!(src["mtl_pixel_format"], "BGRA8Unorm");
-    assert_eq!(src["descriptor"]["attribution"], "certain");
+    assert_eq!(src["descriptor"]["pixel_format"], "BGRA8Unorm");
+    assert_eq!(src["descriptor"]["sample_count"], 1);
     let px = bgra(&level0_of(&r, src));
     assert_eq!(px.len(), 64 * 64);
     assert!(px.iter().all(|p| *p == CYAN), "blit source is not all cyan");
@@ -66,5 +69,9 @@ fn known_textures_late_writes_seven_attributed_bgra_files() {
     assert!(
         kv.iter()
             .any(|(k, v)| k == "gputrace.textureType" && v == "2D")
+    );
+    assert!(
+        kv.iter()
+            .any(|(k, v)| k == "gputrace.resourcePixelFormat" && v == "BGRA8Unorm (80)")
     );
 }

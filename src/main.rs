@@ -3,12 +3,12 @@
 
 use clap::Parser;
 use gputools_replay_hl::{
-    Aspect as FetchAspect, Capture, Descriptions, Error, ManifestStatus, ReplayerConfig, Texture,
+    Aspect as FetchAspect, Capture, Error, ObjectMapError, ReplayerConfig, Texture,
+    TextureDescriptor,
 };
 use gputools_replay_ktx2_fetch::emit::{Context, emit_one};
 use gputools_replay_ktx2_fetch::manifest::{FetchAt, Manifest};
 use gputools_replay_ktx2_fetch::sweep::{self, Fetcher};
-use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -25,11 +25,10 @@ struct Args {
     /// Directory to write .ktx2 files and manifest.json into.
     #[arg(long)]
     out: PathBuf,
-    /// Highest streamRef to sweep. Refs are sparse and assigned at load
-    /// time, so the tool asks for every value up to this and keeps what
-    /// answers. Default: the bundle's index record count plus a margin,
-    /// which bounds the refs the replayer can assign; 20000 if the bundle
-    /// cannot be read.
+    /// Highest streamRef to look up. Refs are sparse and assigned at load
+    /// time, so the tool asks the replayer's object map about every value
+    /// up to this and fetches the textures it names. A lookup costs about a
+    /// quarter of a microsecond. Default: 1000000.
     #[arg(long)]
     max_stream_ref: Option<u64>,
     /// Set MTLREPLAYER_FORCE_LOAD_UNUSED_RESOURCE=1 so textures no captured
@@ -83,25 +82,45 @@ fn main() -> ExitCode {
     }
 }
 
-struct Live(Capture);
+struct Live {
+    cap: Capture,
+    fetch_at: FetchAt,
+}
 
 impl Fetcher for Live {
     type Tex = Texture;
-    fn manifest_status(&self) -> ManifestStatus {
-        self.0.manifest_status()
+    fn texture_descriptor(
+        &self,
+        stream_ref: u64,
+    ) -> Result<Option<TextureDescriptor>, ObjectMapError> {
+        self.cap.texture_descriptor(stream_ref)
     }
-    fn record_count(&self) -> Option<usize> {
-        self.0.record_count()
+    /// A session opens at command 0, where a render target or drawable
+    /// still holds its pre-frame contents (MEASURED: a drawable fetched at
+    /// index 0 is black; after play_all it carries the rendered frame), so
+    /// the default replays everything.
+    fn replay(&self) -> u32 {
+        match self.fetch_at {
+            FetchAt::End => self.cap.play_all(),
+            FetchAt::Start => {}
+            FetchAt::Index(n) => self.cap.play_to(n),
+        }
+        let command_index = self.cap.command_index();
+        if let FetchAt::Index(n) = self.fetch_at
+            && command_index != n
+        {
+            eprintln!(
+                "gputools-replay-ktx2-fetch: asked to replay to command {n}; playback stopped at {command_index}"
+            );
+        }
+        command_index
     }
-    fn textures(&self, refs: RangeInclusive<u64>) -> Result<Vec<Texture>, Error> {
-        self.0.textures(refs)
+    fn textures(&self, refs: &[u64]) -> Result<Vec<Texture>, Error> {
+        self.cap.textures(refs.iter().copied())
     }
     fn stencil_aspects(&self, refs: &[u64]) -> Result<Vec<Texture>, Error> {
-        self.0
+        self.cap
             .texture_aspects(refs.iter().copied(), FetchAspect::Stencil)
-    }
-    fn describe(&self, texs: &[Texture]) -> Descriptions {
-        self.0.describe(texs)
     }
 }
 
@@ -120,7 +139,7 @@ fn is_not_a_bundle(e: &Error) -> bool {
 fn report_load_failure(args: &Args, bundle: &str, e: &Error) -> u8 {
     let mut man = Manifest::new(
         bundle.to_string(),
-        args.max_stream_ref.unwrap_or(0),
+        sweep::bound(args.max_stream_ref).max_stream_ref,
         args.force_load_unused,
         args.timeout,
     );
@@ -152,26 +171,12 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         Err(e) => return Ok(report_load_failure(&args, &bundle, &e)),
     };
     cap.set_timeout(Duration::from_secs(args.timeout));
-    // Position playback before any fetch. A session opens at command 0,
-    // where a render target or drawable still holds its pre-frame contents
-    // (MEASURED: a drawable fetched at index 0 is black; after play_all it
-    // carries the rendered frame), so the default replays everything.
-    match args.fetch_at {
-        FetchAt::End => cap.play_all(),
-        FetchAt::Start => {}
-        FetchAt::Index(n) => cap.play_to(n),
-    }
-    let command_index = cap.command_index();
-    if let FetchAt::Index(n) = args.fetch_at
-        && command_index != n
-    {
-        eprintln!(
-            "gputools-replay-ktx2-fetch: asked to replay to command {n}; playback stopped at {command_index}"
-        );
-    }
-    let live = Live(cap);
+    let live = Live {
+        cap,
+        fetch_at: args.fetch_at,
+    };
 
-    let bound = sweep::bound(&live, args.max_stream_ref);
+    let bound = sweep::bound(args.max_stream_ref);
     let mut man = Manifest::new(
         bundle.clone(),
         bound.max_stream_ref,
@@ -180,9 +185,9 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
     );
     man.max_stream_ref_source = bound.source;
     man.fetch_at = args.fetch_at;
-    man.replayed_to_command_index = command_index;
     let sweep = sweep::run(&live, &bound);
-    man.bundle_manifest = sweep.bundle_manifest;
+    let command_index = sweep.command_index;
+    man.replayed_to_command_index = command_index;
     man.coverage = sweep.coverage;
     man.duplicates = sweep.duplicates;
     man.stencil_probes = sweep.probes;
@@ -206,11 +211,13 @@ fn run(args: Args) -> Result<u8, Box<dyn std::error::Error>> {
         );
     }
     if let Some(c) = &man.coverage
-        && c.listed_not_answered > 0
+        && let Some(highest) = c.highest_stream_ref
+        && highest.saturating_add(sweep::BOUND_HEADROOM) >= bound.max_stream_ref
     {
         eprintln!(
-            "gputools-replay-ktx2-fetch: {} of the bundle's listed textures did not answer the fetch; if they are never read by a captured command, --force-load-unused makes them answer",
-            c.listed_not_answered
+            "gputools-replay-ktx2-fetch: warning: the highest loaded streamRef ({highest}) is within {} of --max-stream-ref ({}); textures past the bound are not looked up",
+            sweep::BOUND_HEADROOM,
+            bound.max_stream_ref
         );
     }
 

@@ -33,9 +33,18 @@ fn base_stencil8_reads_42_and_is_a_base_file_not_a_probe() {
         !e["file"].as_str().unwrap().ends_with("_stencil.ktx2"),
         "a base stencil texture is not a probed aspect"
     );
-    assert_eq!(e["descriptor"]["attribution"], "certain");
-    // The manifest lists 5 textures (hl's own live test pins this).
-    assert_eq!(r.manifest["bundle_manifest"]["textures_listed"], 5);
+    assert_eq!(e["descriptor"]["pixel_format"], "Stencil8");
+    // The replayer's object map holds 6 textures: the fixture's five
+    // `newTextureWithDescriptor` resources plus its X32_Stencil8 view of the
+    // combined resource, which is a texture with its own streamRef (MEASURED
+    // 2026-09-09; the offline bundle manifest listed only the five).
+    assert_eq!(r.manifest["coverage"]["loaded"], 6);
+    assert!(
+        es.iter().any(|e| e["mtl_pixel_format"] == "X32_Stencil8"
+            && e["descriptor"]["pixel_format"] == "X32_Stencil8"
+            && !e["file"].as_str().unwrap().ends_with("_stencil.ktx2")),
+        "the stencil view is exported as its own texture: {es:?}"
+    );
     let probes = r.manifest["stencil_probes"].as_array().unwrap();
     assert!(
         probes.iter().any(|p| p["outcome"] == "written"),
